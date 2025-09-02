@@ -547,7 +547,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     # Add animation controls for time-lapse
     fig.update_layout(
         title=dict(
-            text=f"📈 Time-Lapse: {window_units} {window_type.title()} Money Flow Evolution<br><sub>🔴 Declining | 🟢 Growing | 🔵 Stable ({step_size} steps) - Use trimming slider above to crop</sub>",
+            text=f"📈 Time-Lapse: {window_units} {window_type.title()} Money Flow Evolution<br><sub>🔴 Declining | 🟢 Growing | 🔵 Stable ({step_size} steps)</sub>",
             x=0.5,
             font=dict(size=16)
         ),
@@ -754,75 +754,6 @@ def money_flow_interface(analysis_data):
                 step_size, signal_type, temperature, min_flow
             )
             if flow_fig:
-                # Calculate total frames from the returned frame_dates
-                total_frames = len(frame_dates) if frame_dates else len(period_dates)
-                
-                # Video trimming style range selector
-                st.markdown("**🎬 Video Trimming Style Timeline Crop:**")
-                
-                # Convert frame indices to dates for display
-                start_date = period_dates[0] if period_dates else date.today()
-                end_date = period_dates[-1] if period_dates else date.today()
-                
-                col1, col2 = st.columns([4, 1])
-                
-                with col1:
-                    # Range slider for trimming
-                    trim_range = st.slider(
-                        "📐 Trim Timeline (Drag handles to set start/end points)",
-                        min_value=0,
-                        max_value=max(0, total_frames - 1),
-                        value=(0, max(0, total_frames - 1)),
-                        help="Drag the left handle to set start point, right handle for end point"
-                    )
-                    
-                    # Calculate corresponding dates
-                    start_frame, end_frame = trim_range
-                    
-                    # Get corresponding dates
-                    start_frame_date = frame_dates[start_frame] if start_frame < len(frame_dates) else start_date
-                    end_frame_date = frame_dates[end_frame] if end_frame < len(frame_dates) else end_date
-                    
-                    st.info(f"📅 Crop Selection: {start_frame_date.strftime('%Y-%m-%d')} to {end_frame_date.strftime('%Y-%m-%d')} ({end_frame - start_frame + 1} frames)")
-                
-                with col2:
-                    play_trimmed = st.button("🎬 Play Trimmed", type="primary")
-                    
-                    # Store trim range in session state for the animation
-                    if 'trim_range' not in st.session_state:
-                        st.session_state.trim_range = (0, total_frames - 1)
-                    
-                    st.session_state.trim_range = trim_range
-                    
-                    if play_trimmed:
-                        st.success(f"▶️ Playing cropped segment: {start_frame_date.strftime('%m/%d')} to {end_frame_date.strftime('%m/%d')}")
-                        # Add JavaScript to play only the selected range
-                        st.markdown(f"""
-                        <script>
-                        // Auto-play the trimmed segment
-                        setTimeout(function() {{
-                            const plot = document.querySelector('.js-plotly-plot');
-                            if (plot && plot._fullLayout && plot._fullLayout.sliders) {{
-                                // Jump to start frame
-                                Plotly.animate(plot, [], {{
-                                    frame: {{duration: 0}},
-                                    transition: {{duration: 0}}
-                                }}).then(function() {{
-                                    // Play animation from start to end frame
-                                    const frames = [];
-                                    for (let i = {start_frame}; i <= {end_frame}; i++) {{
-                                        frames.push(String(i));
-                                    }}
-                                    return Plotly.animate(plot, frames, {{
-                                        frame: {{duration: 120}},
-                                        transition: {{duration: 80}}
-                                    }});
-                                }});
-                            }}
-                        }}, 100);
-                        </script>
-                        """, unsafe_allow_html=True)
-                
                 st.plotly_chart(flow_fig, use_container_width=True, height=800)
                 
                 st.markdown(f"""
@@ -830,13 +761,13 @@ def money_flow_interface(analysis_data):
                 - ▶️ **Play Smooth**: Organic growth/shrinkage over {window_units} {window_type} ({step_size} steps)
                 - ⚡ **Play Fast**: Accelerated view for quick overview
                 - 🚀 **Play Ultra-Fast**: Lightning-fast scan of the entire period
-                - 🎬 **Play Between Dates**: Set custom start/end points above
+                - 🎬 **Play Animation**: Use built-in play button
                 - 🔴 **Red nodes**: Declining trend vs previous period
                 - 🟢 **Green nodes**: Growing trend vs previous period  
                 - 🔵 **Blue nodes**: Stable trend vs previous period
                 - **Node size**: Represents sector strength (larger = stronger)
-                - **Trimming slider**: Drag handles to crop timeline like video editing
-                - **Smart playback**: Plays only the cropped segment
+                - **Interactive slider**: Smooth scrubbing through timeline
+                - **Date hover**: See exact dates while navigating
                 """)
                 
                 # Data already loaded above for date controls
