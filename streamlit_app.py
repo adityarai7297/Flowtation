@@ -276,56 +276,188 @@ def compute_optimal_transport_flow(p0, p1, cost_matrix, epsilon=0.01):
         n = len(p0)
         return np.outer(p0, p1)
 
-def create_flow_visualization(flow_matrix, sector_names, min_flow_threshold=0.02):
-    """Create Sankey diagram for money flow visualization"""
+def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_flow_threshold=0.02):
+    """Create animated flow visualization with resizing nodes"""
+    import time
+    
     n_sectors = len(sector_names)
     
-    # Prepare data for Sankey diagram
-    source_indices = []
-    target_indices = []
-    flow_values = []
+    # Calculate net flows (inflow - outflow) for each sector
+    outflows = np.sum(flow_matrix, axis=1)  # Money leaving each sector
+    inflows = np.sum(flow_matrix, axis=0)   # Money entering each sector
+    net_flows = inflows - outflows
     
+    # Create node positions in a circle
+    angles = np.linspace(0, 2*np.pi, n_sectors, endpoint=False)
+    radius = 3
+    x_pos = radius * np.cos(angles)
+    y_pos = radius * np.sin(angles)
+    
+    # Calculate sizes - initial (p0) and final (p1) probabilities
+    initial_sizes = p0 * 1000 + 100  # Scale for visibility, minimum size
+    final_sizes = p1 * 1000 + 100
+    
+    # Create frames for animation
+    n_frames = 30
+    animation_frames = []
+    
+    for frame in range(n_frames + 1):
+        # Interpolate between initial and final sizes
+        t = frame / n_frames
+        current_sizes = (1 - t) * initial_sizes + t * final_sizes
+        
+        # Create scatter plot for this frame
+        frame_data = go.Scatter(
+            x=x_pos,
+            y=y_pos,
+            mode='markers+text',
+            marker=dict(
+                size=current_sizes,
+                color=[
+                    'red' if net_flow < -0.02 else 
+                    'green' if net_flow > 0.02 else 
+                    'blue' for net_flow in net_flows
+                ],
+                opacity=0.7,
+                line=dict(width=2, color='black')
+            ),
+            text=sector_names,
+            textposition="middle center",
+            textfont=dict(size=10, color='white'),
+            name=f"Frame {frame}"
+        )
+        animation_frames.append(frame_data)
+    
+    # Create the figure with animation
+    fig = go.Figure(data=[animation_frames[0]])
+    
+    # Add flow arrows for significant flows
+    arrow_annotations = []
     for i in range(n_sectors):
         for j in range(n_sectors):
             if i != j and flow_matrix[i, j] > min_flow_threshold:
-                source_indices.append(i)
-                target_indices.append(j + n_sectors)  # Offset target indices
-                flow_values.append(flow_matrix[i, j] * 100)  # Convert to percentage
+                # Calculate arrow position
+                arrow_x = [x_pos[i], x_pos[j]]
+                arrow_y = [y_pos[i], y_pos[j]]
+                
+                # Add arrow line
+                fig.add_trace(go.Scatter(
+                    x=arrow_x,
+                    y=arrow_y,
+                    mode='lines',
+                    line=dict(
+                        width=flow_matrix[i, j] * 50,  # Scale arrow thickness
+                        color='rgba(135, 206, 250, 0.6)'
+                    ),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+                
+                # Add arrowhead annotation
+                arrow_annotations.append(
+                    dict(
+                        x=x_pos[j],
+                        y=y_pos[j],
+                        ax=x_pos[i],
+                        ay=y_pos[i],
+                        arrowhead=3,
+                        arrowsize=2,
+                        arrowwidth=2,
+                        arrowcolor='rgba(135, 206, 250, 0.8)',
+                        showarrow=True
+                    )
+                )
     
-    if len(flow_values) == 0:
-        st.warning("No significant flows detected. Try a longer time window or lower threshold.")
-        return None
+    # Create animation frames
+    frames = []
+    for frame_idx, frame_data in enumerate(animation_frames):
+        frames.append(go.Frame(
+            data=[frame_data] + [trace for trace in fig.data[1:]],  # Keep arrows
+            name=str(frame_idx)
+        ))
     
-    # Create node labels (source and target)
-    node_labels = [f"{name} (from)" for name in sector_names] + [f"{name} (to)" for name in sector_names]
+    fig.frames = frames
     
-    # Create color mapping
-    colors = px.colors.qualitative.Set3[:n_sectors] * 2
-    
-    # Create Sankey diagram
-    fig = go.Figure(data=[go.Sankey(
-        node=dict(
-            pad=15,
-            thickness=20,
-            line=dict(color="black", width=0.5),
-            label=node_labels,
-            color=colors
-        ),
-        link=dict(
-            source=source_indices,
-            target=target_indices,
-            value=flow_values,
-            color='rgba(135, 206, 250, 0.6)'
-        )
-    )])
-    
+    # Add animation controls
     fig.update_layout(
-        title_text="Money Flow Between Sectors",
-        font_size=12,
-        height=600
+        title=dict(
+            text="💰 Money Flow Animation<br><sub>🔴 Shrinking (Outflow) | 🟢 Growing (Inflow) | 🔵 Neutral</sub>",
+            x=0.5
+        ),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        showlegend=False,
+        height=600,
+        annotations=arrow_annotations,
+        updatemenus=[{
+            "buttons": [
+                {
+                    "args": [None, {"frame": {"duration": 100, "redraw": True},
+                                   "fromcurrent": True, "transition": {"duration": 50}}],
+                    "label": "▶️ Play",
+                    "method": "animate"
+                },
+                {
+                    "args": [[None], {"frame": {"duration": 0, "redraw": True},
+                                     "mode": "immediate", "transition": {"duration": 0}}],
+                    "label": "⏸️ Pause",
+                    "method": "animate"
+                }
+            ],
+            "direction": "left",
+            "pad": {"r": 10, "t": 87},
+            "showactive": False,
+            "type": "buttons",
+            "x": 0.1,
+            "xanchor": "right",
+            "y": 0,
+            "yanchor": "top"
+        }],
+        sliders=[{
+            "active": 0,
+            "yanchor": "top",
+            "xanchor": "left",
+            "currentvalue": {
+                "font": {"size": 20},
+                "prefix": "Time: ",
+                "visible": True,
+                "xanchor": "right"
+            },
+            "transition": {"duration": 300, "easing": "cubic-in-out"},
+            "pad": {"b": 10, "t": 50},
+            "len": 0.9,
+            "x": 0.1,
+            "y": 0,
+            "steps": [
+                {
+                    "args": [[f], {"frame": {"duration": 300, "redraw": True},
+                                  "mode": "immediate", "transition": {"duration": 300}}],
+                    "label": f"T+{i}",
+                    "method": "animate"
+                } for i, f in enumerate([str(k) for k in range(n_frames + 1)])
+            ]
+        }]
     )
     
     return fig
+
+def create_flow_summary_table(flow_matrix, sector_names, p0, p1):
+    """Create a summary table of the flows"""
+    outflows = np.sum(flow_matrix, axis=1)
+    inflows = np.sum(flow_matrix, axis=0)
+    net_flows = inflows - outflows
+    
+    summary_df = pd.DataFrame({
+        'Sector': sector_names,
+        'Initial Size (%)': (p0 * 100).round(1),
+        'Final Size (%)': (p1 * 100).round(1),
+        'Size Change': ((p1 - p0) * 100).round(1),
+        'Net Flow': (net_flows * 100).round(1),
+        'Status': ['🔴 Shrinking' if nf < -0.02 else '🟢 Growing' if nf > 0.02 else '🔵 Neutral' 
+                  for nf in net_flows]
+    })
+    
+    return summary_df.sort_values('Size Change', ascending=False)
 
 def money_flow_interface(analysis_data):
     """Money flow visualization interface"""
@@ -385,59 +517,52 @@ def money_flow_interface(analysis_data):
             # Compute optimal transport flow
             flow_matrix = compute_optimal_transport_flow(p0, p1, cost_matrix, epsilon)
             
-            # Display results
-            col1, col2 = st.columns(2)
+            # Main animated flow visualization
+            st.subheader("🎬 Animated Money Flow")
             
-            with col1:
-                st.subheader("📊 Sector Strengths")
-                strength_df = pd.DataFrame({
-                    'Sector': returns_data.columns,
-                    'Initial Strength': theta_t0,
-                    'Final Strength': theta_t1,
-                    'Initial Prob (%)': p0 * 100,
-                    'Final Prob (%)': p1 * 100,
-                    'Change': (theta_t1 - theta_t0) / theta_t0 * 100
-                }).round(2)
-                
-                # Color code the change column
-                def color_change(val):
-                    if val > 5:
-                        return 'background-color: #d4edda'
-                    elif val > 0:
-                        return 'background-color: #fff3cd'
-                    else:
-                        return 'background-color: #f8d7da'
-                
-                styled_df = strength_df.style.applymap(color_change, subset=['Change'])
-                st.dataframe(styled_df, use_container_width=True)
-            
-            with col2:
-                st.subheader("🔗 Correlation Matrix")
-                fig_corr = px.imshow(corr_matrix, 
-                                   title="Sector Correlations (Cost Basis)",
-                                   color_continuous_scale='RdBu',
-                                   aspect='auto')
-                st.plotly_chart(fig_corr, use_container_width=True)
-            
-            # Main flow visualization
-            st.subheader("🌊 Money Flow Diagram")
-            
-            flow_fig = create_flow_visualization(flow_matrix, returns_data.columns, min_flow)
+            flow_fig = create_animated_flow_visualization(
+                flow_matrix, returns_data.columns, p0, p1, min_flow
+            )
             if flow_fig:
                 st.plotly_chart(flow_fig, use_container_width=True)
                 
-                # Flow summary
-                st.subheader("📈 Flow Summary")
+                st.markdown("""
+                **How to use the animation:**
+                - ▶️ **Play**: Watch sectors grow/shrink based on money flows
+                - 🔴 **Red nodes**: Money flowing OUT (shrinking)
+                - 🟢 **Green nodes**: Money flowing IN (growing)  
+                - 🔵 **Blue nodes**: Neutral/balanced flows
+                - **Arrows**: Show direction and magnitude of flows
+                - **Slider**: Scrub through time manually
+                """)
+                
+                # Flow summary table
+                st.subheader("📊 Flow Summary")
+                summary_df = create_flow_summary_table(flow_matrix, returns_data.columns, p0, p1)
+                
+                # Color code the table
+                def color_status(val):
+                    if '🔴' in str(val):
+                        return 'background-color: #f8d7da'
+                    elif '🟢' in str(val):
+                        return 'background-color: #d4edda'
+                    else:
+                        return 'background-color: #e2e3e5'
+                
+                styled_summary = summary_df.style.applymap(color_status, subset=['Status'])
+                st.dataframe(styled_summary, use_container_width=True)
+                
+                # Quick metrics
+                col1, col2, col3 = st.columns(3)
                 total_flow = np.sum(flow_matrix) * 100
                 max_flow = np.max(flow_matrix) * 100
+                n_significant_flows = np.sum(flow_matrix > min_flow)
                 
-                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total Flow", f"{total_flow:.1f}%")
                 with col2:
                     st.metric("Largest Single Flow", f"{max_flow:.1f}%")
                 with col3:
-                    n_significant_flows = np.sum(flow_matrix > min_flow)
                     st.metric("Significant Flows", n_significant_flows)
 
 def main():
