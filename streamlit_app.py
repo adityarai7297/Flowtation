@@ -498,26 +498,40 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                 frame_flows = []
                 flow_threshold = min_flow_threshold
                 
-                for i in range(n_sectors):
-                    for j in range(n_sectors):
-                        if i != j and flow_matrix[i, j] > flow_threshold:
-                            # Scale arrow opacity based on flow strength and interpolation
-                            flow_strength = flow_matrix[i, j]
-                            arrow_opacity = min(0.8, flow_strength * 10) * eased_t  # Fade in with animation
-                            
-                            # Create arrow from sector i to sector j
-                            arrow_trace = go.Scatter(
-                                x=[x_pos[i], x_pos[j]],
-                                y=[y_pos[i], y_pos[j]], 
-                                mode='lines',
-                                line=dict(
-                                    color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
-                                    width=max(1, flow_strength * 20),  # Scale width by flow
-                                ),
-                                showlegend=False,
-                                hoverinfo='skip'
-                            )
-                            frame_flows.append(arrow_trace)
+                # Only show arrows during the active transition phase (when nodes are changing significantly)
+                # Use a more restrictive window for arrow visibility
+                arrow_active_start = 0.2  # Start showing arrows 20% into transition
+                arrow_active_end = 0.8    # Stop showing arrows 80% into transition
+                
+                if arrow_active_start <= t <= arrow_active_end:
+                    # Calculate transition progress within the active window
+                    arrow_progress = (t - arrow_active_start) / (arrow_active_end - arrow_active_start)
+                    
+                    for i in range(n_sectors):
+                        for j in range(n_sectors):
+                            if i != j and flow_matrix[i, j] > flow_threshold:
+                                flow_strength = flow_matrix[i, j]
+                                
+                                # Arrow intensity peaks in the middle of the transition
+                                # Use a bell curve for opacity: stronger in middle, weaker at edges
+                                bell_curve = 4 * arrow_progress * (1 - arrow_progress)  # Peaks at 0.5
+                                arrow_opacity = min(0.8, flow_strength * 15) * bell_curve
+                                
+                                # Only create arrow if opacity is meaningful
+                                if arrow_opacity > 0.05:
+                                    # Create arrow from sector i to sector j
+                                    arrow_trace = go.Scatter(
+                                        x=[x_pos[i], x_pos[j]],
+                                        y=[y_pos[i], y_pos[j]], 
+                                        mode='lines',
+                                        line=dict(
+                                            color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
+                                            width=max(1, flow_strength * 20),  # Scale width by flow
+                                        ),
+                                        showlegend=False,
+                                        hoverinfo='skip'
+                                    )
+                                    frame_flows.append(arrow_trace)
                 
                 # Create frame with nodes
                 frame_data = go.Scatter(
