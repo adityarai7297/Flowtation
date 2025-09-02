@@ -609,10 +609,12 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             "yanchor": "top",
             "xanchor": "left",
             "currentvalue": {
-                "font": {"size": 14},
-                "prefix": "📅 ",
+                "font": {"size": 18, "color": "#1f77b4", "family": "Arial Black"},
+                "prefix": "📅 Current Date: ",
+                "suffix": "",
                 "visible": True,
-                "xanchor": "right"
+                "xanchor": "center",
+                "offset": 10
             },
             "transition": {"duration": 0, "easing": "linear"},
             "pad": {"b": 10, "t": 50},
@@ -629,7 +631,8 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                         "transition": {"duration": 0}
                     }],
                     "label": "",  # No labels
-                    "method": "animate"
+                    "method": "animate",
+                    "value": frame_dates[frame_idx].strftime('%Y-%m-%d') if frame_idx < len(frame_dates) else f"Frame {frame_idx}"
                 } for frame_idx in range(total_frames)
             ]
         }]
