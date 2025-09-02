@@ -485,15 +485,25 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                 # Smooth interpolation between current and next states
                 interpolated_sizes = (1 - eased_t) * current_sizes + eased_t * next_sizes
                 
-                # CORRECT APPROACH: Scale the original period flow based on transition progress
-                # The flow matrix represents the TOTAL flow for this period transition
-                # At each frame, we show a portion of that flow based on how much change is happening
+                # CORRECT APPROACH: Calculate flow FROM current interpolated state TO next interpolated state
+                # This ensures flows always explain the immediate node changes
                 
-                # The flow intensity should match the rate of node size change
-                transition_intensity = eased_t * (1 - eased_t) * 4  # Derivative of easing curve
+                # Current state at this frame
+                current_frame_probs = (1 - eased_t) * current_probs_np + eased_t * next_probs_np
                 
-                # Scale the original flow matrix by transition intensity
-                frame_flow_matrix = flow_matrix * transition_intensity
+                # Next frame state (small step ahead)
+                next_t = min(1.0, t + (1/interpolation_steps))
+                next_eased_t = 3 * next_t**2 - 2 * next_t**3 if next_t < 1 else 1
+                next_frame_probs = (1 - next_eased_t) * current_probs_np + next_eased_t * next_probs_np
+                
+                # Calculate flow between consecutive frames
+                try:
+                    frame_flow_matrix = ot.sinkhorn(current_frame_probs, next_frame_probs, correlation_costs_np, reg=0.01)
+                    # Scale by step size to get proper flow intensity
+                    frame_flow_matrix = frame_flow_matrix * interpolation_steps
+                except Exception:
+                    # Fallback: no flows if calculation fails
+                    frame_flow_matrix = np.zeros((n_sectors, n_sectors))
                 
                 # Gradually transition colors (use current colors for first third, transition in middle, next colors in last third)
                 if t < 0.33:
@@ -504,33 +514,30 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                     # Blend colors in the middle section
                     frame_colors = colors  # Keep it simple for now
                 
-                # Create flow arrows - SIMPLE AND CORRECT: Show flows when they're active
+                # Create flow arrows - Show frame-to-frame flows
                 frame_flows = []
                 
-                # Only show arrows if there's meaningful transition happening (transition_intensity > threshold)
-                if transition_intensity > 0.01:  # Threshold for showing any flows
-                    
-                    for i in range(n_sectors):
-                        for j in range(n_sectors):
-                            if i != j and frame_flow_matrix[i, j] > min_flow_threshold:
-                                flow_strength = frame_flow_matrix[i, j]
-                                
-                                # Arrow opacity is directly proportional to flow strength
-                                arrow_opacity = min(0.8, flow_strength * 30)
-                                
-                                if arrow_opacity > 0.05:
-                                    arrow_trace = go.Scatter(
-                                        x=[x_pos[i], x_pos[j]],
-                                        y=[y_pos[i], y_pos[j]], 
-                                        mode='lines',
-                                        line=dict(
-                                            color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
-                                            width=max(1, flow_strength * 40),  # Scale width by flow
-                                        ),
-                                        showlegend=False,
-                                        hoverinfo='skip'
-                                    )
-                                    frame_flows.append(arrow_trace)
+                for i in range(n_sectors):
+                    for j in range(n_sectors):
+                        if i != j and frame_flow_matrix[i, j] > min_flow_threshold:
+                            flow_strength = frame_flow_matrix[i, j]
+                            
+                            # Arrow opacity proportional to flow strength
+                            arrow_opacity = min(0.7, flow_strength * 50)
+                            
+                            if arrow_opacity > 0.05:
+                                arrow_trace = go.Scatter(
+                                    x=[x_pos[i], x_pos[j]],
+                                    y=[y_pos[i], y_pos[j]], 
+                                    mode='lines',
+                                    line=dict(
+                                        color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
+                                        width=max(1, flow_strength * 60),  # Scale width by flow
+                                    ),
+                                    showlegend=False,
+                                    hoverinfo='skip'
+                                )
+                                frame_flows.append(arrow_trace)
                 
                 # Create frame with nodes
                 frame_data = go.Scatter(
