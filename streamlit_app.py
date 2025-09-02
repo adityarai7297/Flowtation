@@ -43,11 +43,22 @@ def download_data():
 
 def prepare_data_for_analysis(df):
     """Prepare data for analysis"""
+    # Ensure all data is numeric
+    df = df.apply(pd.to_numeric, errors='coerce')
+    
     # Forward fill missing values
     df = df.fillna(method='ffill')
     
+    # Drop any columns that are all NaN after conversion
+    df = df.dropna(axis=1, how='all')
+    
     # Calculate returns
     returns = df.pct_change().dropna()
+    
+    # Check if we have valid data
+    if df.empty or returns.empty:
+        st.error("No valid numeric data found in the dataset")
+        return None
     
     # Calculate basic metrics
     total_return = (df.iloc[-1] / df.iloc[0] - 1) * 100
@@ -403,6 +414,11 @@ def main():
     
     # Prepare data
     analysis_data = prepare_data_for_analysis(prices_df)
+    
+    if analysis_data is None:
+        st.error("Failed to prepare data for analysis")
+        return
+        
     returns_data = analysis_data['returns']
     
     # User inputs
