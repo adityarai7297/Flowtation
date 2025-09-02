@@ -46,6 +46,12 @@ def prepare_data_for_analysis(df):
     # Ensure all data is numeric
     df = df.apply(pd.to_numeric, errors='coerce')
     
+    # Handle duplicate dates by keeping the last occurrence
+    df = df[~df.index.duplicated(keep='last')]
+    
+    # Ensure index is sorted
+    df = df.sort_index()
+    
     # Forward fill missing values
     df = df.fillna(method='ffill')
     
@@ -188,7 +194,21 @@ def compute_sector_strengths_time_series(returns_df, window_units, window_type, 
     for time_point in time_points:
         # Get rolling window of returns ending at this time point
         window_start = time_point - timedelta(days=rolling_window_days)
-        window_returns = returns_df.loc[window_start:time_point]
+        
+        # Use iloc-based slicing to avoid duplicate date issues
+        try:
+            # Find the indices for the time window
+            start_idx = returns_df.index.get_indexer([window_start], method='bfill')[0]
+            end_idx = returns_df.index.get_indexer([time_point], method='ffill')[0]
+            
+            if start_idx == -1 or end_idx == -1:
+                continue
+                
+            window_returns = returns_df.iloc[start_idx:end_idx + 1]
+        except (KeyError, IndexError):
+            # Fallback: try to get data within the time range
+            mask = (returns_df.index >= window_start) & (returns_df.index <= time_point)
+            window_returns = returns_df[mask]
         
         if len(window_returns) < 10:  # Need minimum data
             continue
