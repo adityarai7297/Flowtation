@@ -543,10 +543,16 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
         else:
             display_date = period_dates[-1] if period_dates else date.today()
         
-        # Only show labels for major milestones to avoid clutter
-        if frame_idx % interpolation_steps == 0 or frame_idx == total_frames - 1:
+        # Show labels at the START of each step period (when interpolation cycle begins)
+        # This aligns dividers with actual step periods
+        if frame_idx % interpolation_steps == 0:
+            # This is the start of a new step period
+            label = display_date.strftime("%m/%d")
+        elif frame_idx == total_frames - 1:
+            # Always show the final frame
             label = display_date.strftime("%m/%d")
         else:
+            # Intermediate interpolation frames - no label
             label = ""
         
         slider_steps.append({
@@ -763,7 +769,7 @@ def money_flow_interface(analysis_data):
                 - 🟢 **Green nodes**: Growing trend vs previous period  
                 - 🔵 **Blue nodes**: Stable trend vs previous period
                 - **Node size**: Represents sector strength (larger = stronger)
-                - **Smooth slider**: Navigate through all interpolated frames with date markers
+                - **Period-aligned slider**: Dividers align with each {step_size} step period
                 - **Ultra-smooth**: 12 interpolated frames between each {step_size} period
                 """)
                 
