@@ -743,6 +743,11 @@ def money_flow_interface(analysis_data):
             st.subheader("📈 Time-Lapse Money Flow Evolution")
             st.success(f"✅ {validation['usable_periods']} periods available for analysis ({step_size} steps over {window_units} {window_type})")
             
+            # Get time series data for date controls
+            period_strengths, period_probabilities, period_dates = compute_sector_strengths_time_series(
+                returns_data, window_units, window_type, step_size, signal_type
+            )
+            
             flow_fig, _ = create_time_lapse_flow_visualization(
                 returns_data, returns_data.columns, window_units, window_type, 
                 step_size, signal_type, temperature, min_flow
@@ -785,10 +790,7 @@ def money_flow_interface(analysis_data):
                 - **Date selection**: Use date pickers above to analyze specific periods
                 """)
                 
-                # Get time series data for summary
-                period_strengths, period_probabilities, period_dates = compute_sector_strengths_time_series(
-                    returns_data, window_units, window_type, step_size, signal_type
-                )
+                # Data already loaded above for date controls
                 
                 if period_strengths is not None:
                     # Summary with time series data
