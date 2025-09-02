@@ -609,20 +609,15 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             "yanchor": "top",
             "xanchor": "left",
             "currentvalue": {
-                "font": {"size": 18, "color": "#1f77b4", "family": "Arial Black"},
-                "prefix": "📅 Current Date: ",
-                "suffix": "",
-                "visible": True,
-                "xanchor": "center",
-                "offset": 10
+                "visible": False
             },
             "transition": {"duration": 0, "easing": "linear"},
             "pad": {"b": 10, "t": 50},
             "len": 0.9,
             "x": 0.1,
             "y": 0,
-            "tickwidth": 0,  # Remove tick marks
-            "ticklen": 0,    # Remove tick length
+            "tickwidth": 2,  # Show tick marks
+            "ticklen": 10,   # Tick length
             "steps": [
                 {
                     "args": [[str(frame_idx)], {
@@ -630,7 +625,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                         "mode": "immediate", 
                         "transition": {"duration": 0}
                     }],
-                    "label": "",  # No labels
+                    "label": frame_dates[frame_idx].strftime('%m/%d') if frame_idx < len(frame_dates) and frame_idx % max(1, total_frames // 8) == 0 else "",
                     "method": "animate",
                     "value": frame_dates[frame_idx].strftime('%Y-%m-%d') if frame_idx < len(frame_dates) else f"Frame {frame_idx}"
                 } for frame_idx in range(total_frames)
