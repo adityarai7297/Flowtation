@@ -505,48 +505,49 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                     # Blend colors in the middle section
                     frame_colors = colors  # Keep it simple for now
                 
-                # Create flow arrows synchronized with node state changes
+                # Create flow arrows - LOGICAL RULE: Any node size change MUST show flows
                 frame_flows = []
-                flow_threshold = min_flow_threshold
                 
-                # Calculate how much the nodes are actually changing at this exact moment
-                current_interpolated_sizes = (1 - eased_t) * current_sizes + eased_t * next_sizes
+                # Calculate how much each node is changing
+                size_changes = np.abs(next_sizes - current_sizes) * eased_t
+                significant_change_threshold = 0.5  # Much lower threshold
                 
-                # Calculate the rate of change (velocity) of node sizes
-                size_velocity = np.abs(next_sizes - current_sizes) * eased_t * (1 - eased_t) * 4  # Derivative of easing curve
-                max_velocity = np.max(size_velocity) if len(size_velocity) > 0 else 0
-                
-                # Only show arrows when nodes are actively changing (velocity > threshold)
-                if max_velocity > 0.1:  # Threshold for meaningful change
-                    for i in range(n_sectors):
+                # For each sector with significant size change, show ALL its flows
+                for i in range(n_sectors):
+                    if size_changes[i] > significant_change_threshold:
+                        # This node is changing - show ALL its flows (in and out)
                         for j in range(n_sectors):
-                            if i != j and frame_flow_matrix[i, j] > flow_threshold:
-                                flow_strength = frame_flow_matrix[i, j]
+                            if i != j:
+                                # Check both directions: i->j (outflow) and j->i (inflow)
+                                flows_to_show = []
                                 
-                                # Arrow opacity based on how much the source and target nodes are changing
-                                source_velocity = size_velocity[i] if i < len(size_velocity) else 0
-                                target_velocity = size_velocity[j] if j < len(size_velocity) else 0
-                                combined_velocity = (source_velocity + target_velocity) / 2
+                                # Outflow from changing node i to j
+                                if frame_flow_matrix[i, j] > min_flow_threshold * 0.1:  # Much lower threshold
+                                    flows_to_show.append((i, j, frame_flow_matrix[i, j]))
                                 
-                                # Scale arrow opacity by flow strength and node change velocity
-                                velocity_factor = combined_velocity / max_velocity if max_velocity > 0 else 0
-                                arrow_opacity = min(0.8, flow_strength * 10) * velocity_factor
+                                # Inflow to changing node i from j  
+                                if frame_flow_matrix[j, i] > min_flow_threshold * 0.1:
+                                    flows_to_show.append((j, i, frame_flow_matrix[j, i]))
                                 
-                                # Only create arrow if opacity is meaningful
-                                if arrow_opacity > 0.05:
-                                    # Create arrow from sector i to sector j
-                                    arrow_trace = go.Scatter(
-                                        x=[x_pos[i], x_pos[j]],
-                                        y=[y_pos[i], y_pos[j]], 
-                                        mode='lines',
-                                        line=dict(
-                                            color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
-                                            width=max(1, flow_strength * 15),  # Scale width by flow
-                                        ),
-                                        showlegend=False,
-                                        hoverinfo='skip'
-                                    )
-                                    frame_flows.append(arrow_trace)
+                                # Create arrows for all flows involving the changing node
+                                for source, target, flow_strength in flows_to_show:
+                                    # Base opacity on flow strength and size change magnitude
+                                    change_factor = size_changes[i] / max(size_changes) if max(size_changes) > 0 else 1
+                                    arrow_opacity = min(0.8, flow_strength * 20) * change_factor * 0.7
+                                    
+                                    if arrow_opacity > 0.02:  # Very low threshold to show all logical flows
+                                        arrow_trace = go.Scatter(
+                                            x=[x_pos[source], x_pos[target]],
+                                            y=[y_pos[source], y_pos[target]], 
+                                            mode='lines',
+                                            line=dict(
+                                                color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
+                                                width=max(0.5, flow_strength * 25),  # Scale width by flow
+                                            ),
+                                            showlegend=False,
+                                            hoverinfo='skip'
+                                        )
+                                        frame_flows.append(arrow_trace)
                 
                 # Create frame with nodes
                 frame_data = go.Scatter(
