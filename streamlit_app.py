@@ -52,36 +52,53 @@ def prepare_data_for_analysis(df):
     # Ensure index is sorted
     df = df.sort_index()
     
+    # Extract only Close prices for each ETF (sector)
+    # The data has columns like 'XLE_Close', 'XLF_Close', etc.
+    close_columns = [col for col in df.columns if col.endswith('_Close')]
+    
+    if not close_columns:
+        # Fallback: try to find Close columns without suffix
+        close_columns = [col for col in df.columns if 'Close' in col]
+    
+    if not close_columns:
+        # If no Close columns found, use all numeric columns (assuming they are prices)
+        st.warning("No Close price columns found. Using all available columns.")
+        close_prices = df
+    else:
+        close_prices = df[close_columns]
+        # Clean up column names to get sector names
+        close_prices.columns = [col.replace('_Close', '') for col in close_prices.columns]
+    
     # Forward fill missing values
-    df = df.fillna(method='ffill')
+    close_prices = close_prices.fillna(method='ffill')
     
     # Drop any columns that are all NaN after conversion
-    df = df.dropna(axis=1, how='all')
+    close_prices = close_prices.dropna(axis=1, how='all')
     
     # Calculate returns
-    returns = df.pct_change().dropna()
+    returns = close_prices.pct_change().dropna()
     
     # Check if we have valid data
-    if df.empty or returns.empty:
+    if close_prices.empty or returns.empty:
         st.error("No valid numeric data found in the dataset")
         return None
     
     # Calculate basic metrics
-    total_return = (df.iloc[-1] / df.iloc[0] - 1) * 100
+    total_return = (close_prices.iloc[-1] / close_prices.iloc[0] - 1) * 100
     volatility = returns.std() * np.sqrt(252) * 100  # Annualized volatility
     
     # Recent performance (last 30 days)
-    recent_return = (df.iloc[-1] / df.iloc[-30] - 1) * 100 if len(df) >= 30 else total_return
+    recent_return = (close_prices.iloc[-1] / close_prices.iloc[-30] - 1) * 100 if len(close_prices) >= 30 else total_return
     
     analysis_data = {
-        'prices': df,
+        'prices': close_prices,
         'returns': returns,
         'total_return': total_return,
         'volatility': volatility,
         'recent_return': recent_return,
-        'start_date': df.index[0],
-        'end_date': df.index[-1],
-        'total_days': len(df)
+        'start_date': close_prices.index[0],
+        'end_date': close_prices.index[-1],
+        'total_days': len(close_prices)
     }
     
     return analysis_data
