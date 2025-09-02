@@ -1,5 +1,5 @@
 name: Build & Publish Dataset (free)
-
+# Automated ETF sector data pipeline
 on:
   schedule:
     - cron: "30 22 * * 1-5"   # Mon-Fri 22:30 UTC (after US market close)
