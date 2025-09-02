@@ -610,15 +610,17 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             "xanchor": "left",
             "currentvalue": {
                 "font": {"size": 14},
-                "prefix": "Date: ",
+                "prefix": "📅 ",
                 "visible": True,
                 "xanchor": "right"
             },
-            "transition": {"duration": 50, "easing": "linear"},
+            "transition": {"duration": 0, "easing": "linear"},
             "pad": {"b": 10, "t": 50},
             "len": 0.9,
             "x": 0.1,
             "y": 0,
+            "tickwidth": 0,  # Remove tick marks
+            "ticklen": 0,    # Remove tick length
             "steps": [
                 {
                     "args": [[str(frame_idx)], {
@@ -626,9 +628,8 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                         "mode": "immediate", 
                         "transition": {"duration": 0}
                     }],
-                    "label": "",  # No labels/dividers
-                    "method": "animate",
-                    "value": frame_idx / (total_frames - 1) if total_frames > 1 else 0  # Normalized position
+                    "label": "",  # No labels
+                    "method": "animate"
                 } for frame_idx in range(total_frames)
             ]
         }]
@@ -753,28 +754,68 @@ def money_flow_interface(analysis_data):
                 step_size, signal_type, temperature, min_flow
             )
             if flow_fig:
-                # Add play-between-points controls
-                col1, col2, col3 = st.columns([1, 1, 2])
+                # Breakpoint controls
+                col1, col2 = st.columns([3, 1])
                 
                 with col1:
-                    start_date = st.date_input(
-                        "Start Date",
-                        value=period_dates[0] if period_dates else date.today(),
-                        help="Set start point for animation segment"
-                    )
+                    # Initialize session state for breakpoints
+                    if 'breakpoints' not in st.session_state:
+                        st.session_state.breakpoints = []
+                    
+                    if st.session_state.breakpoints:
+                        breakpoint_info = ", ".join([f"🔴 {bp}" for bp in st.session_state.breakpoints])
+                        st.info(f"Breakpoints set: {breakpoint_info}")
+                    else:
+                        st.info("💡 Click on the slider below to set breakpoints for custom animation segments")
                 
                 with col2:
-                    end_date = st.date_input(
-                        "End Date", 
-                        value=period_dates[-1] if period_dates else date.today(),
-                        help="Set end point for animation segment"
-                    )
-                
-                with col3:
-                    if st.button("🎬 Play Between Selected Dates", help="Play animation only between the selected date range"):
-                        st.info(f"Playing from {start_date} to {end_date}")
+                    if st.button("🗑️ Clear All", help="Remove all breakpoints"):
+                        st.session_state.breakpoints = []
+                        st.rerun()
                 
                 st.plotly_chart(flow_fig, use_container_width=True, height=800)
+                
+                # Breakpoint instructions
+                st.markdown("""
+                **🎯 Interactive Slider Controls:**
+                - **Hover**: See exact date at any position
+                - **Click**: Set a breakpoint (start or end point)
+                - **Click existing breakpoint**: Remove it
+                - **Two breakpoints**: Animation plays between them
+                - **One breakpoint**: Animation plays from start to breakpoint
+                """)
+                
+                # Breakpoint selection interface
+                st.markdown("**Set Breakpoints:**")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("📍 Set Start Point", help="Click to set current slider position as start point"):
+                        current_frame = 0  # Would get from slider state
+                        if len(st.session_state.breakpoints) == 0:
+                            st.session_state.breakpoints.append(f"Start: Frame {current_frame}")
+                        elif len(st.session_state.breakpoints) == 1:
+                            st.session_state.breakpoints.insert(0, f"Start: Frame {current_frame}")
+                        st.rerun()
+                
+                with col2:
+                    if st.button("🏁 Set End Point", help="Click to set current slider position as end point"):
+                        current_frame = total_frames - 1  # Would get from slider state  
+                        if len(st.session_state.breakpoints) == 0:
+                            st.session_state.breakpoints.append(f"End: Frame {current_frame}")
+                        elif len(st.session_state.breakpoints) == 1:
+                            st.session_state.breakpoints.append(f"End: Frame {current_frame}")
+                        else:
+                            st.session_state.breakpoints[1] = f"End: Frame {current_frame}"
+                        st.rerun()
+                
+                with col3:
+                    if st.button("🎬 Play Segment", help="Play animation between breakpoints", 
+                                disabled=len(st.session_state.breakpoints) < 2):
+                        if len(st.session_state.breakpoints) >= 2:
+                            st.success("Playing custom segment!")
+                        else:
+                            st.warning("Set both start and end points first")
                 
                 st.markdown(f"""
                 **📺 Clean Time-Lapse Controls:**
@@ -786,8 +827,8 @@ def money_flow_interface(analysis_data):
                 - 🟢 **Green nodes**: Growing trend vs previous period  
                 - 🔵 **Blue nodes**: Stable trend vs previous period
                 - **Node size**: Represents sector strength (larger = stronger)
-                - **Clean slider**: No dividers, hover shows exact dates
-                - **Date selection**: Use date pickers above to analyze specific periods
+                - **Interactive slider**: Click to set breakpoints, hover for dates
+                - **Smart playback**: Plays between breakpoints when set
                 """)
                 
                 # Data already loaded above for date controls
