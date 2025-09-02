@@ -519,6 +519,46 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     
     fig.frames = frames
     
+    # Create smooth slider steps for all frames
+    slider_steps = []
+    total_frames = len(animation_frames)
+    
+    # Create steps for smooth navigation through all interpolated frames
+    for frame_idx in range(total_frames):
+        # Calculate which period we're in
+        period_idx = frame_idx // interpolation_steps
+        interpolation_progress = (frame_idx % interpolation_steps) / interpolation_steps
+        
+        # Get current and next period dates for interpolation
+        if period_idx < len(period_dates):
+            current_date = period_dates[period_idx]
+            if period_idx + 1 < len(period_dates):
+                next_date = period_dates[period_idx + 1]
+                # Interpolate between current and next date
+                total_days = (next_date - current_date).days
+                interpolated_days = int(total_days * interpolation_progress)
+                display_date = current_date + timedelta(days=interpolated_days)
+            else:
+                display_date = current_date
+        else:
+            display_date = period_dates[-1] if period_dates else date.today()
+        
+        # Only show labels for major milestones to avoid clutter
+        if frame_idx % interpolation_steps == 0 or frame_idx == total_frames - 1:
+            label = display_date.strftime("%m/%d")
+        else:
+            label = ""
+        
+        slider_steps.append({
+            "args": [[str(frame_idx)], {
+                "frame": {"duration": 50, "redraw": True},
+                "mode": "immediate", 
+                "transition": {"duration": 50}
+            }],
+            "label": label,
+            "method": "animate"
+        })
+    
     # Add animation controls for time-lapse
     fig.update_layout(
         title=dict(
@@ -585,26 +625,16 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             "xanchor": "left",
             "currentvalue": {
                 "font": {"size": 14},
-                "prefix": "Date: ",
+                "prefix": "Progress: ",
                 "visible": True,
                 "xanchor": "right"
             },
-            "transition": {"duration": 200, "easing": "cubic-in-out"},
+            "transition": {"duration": 100, "easing": "cubic-in-out"},
             "pad": {"b": 10, "t": 50},
             "len": 0.9,
             "x": 0.1,
             "y": 0,
-            "steps": [
-                {
-                    "args": [[str(period_idx * interpolation_steps + interpolation_steps - 1)], {
-                        "frame": {"duration": 100, "redraw": True},
-                        "mode": "immediate", 
-                        "transition": {"duration": 100}
-                    }],
-                    "label": period_dates[period_idx].strftime("%Y-%m-%d") if period_idx < len(period_dates) else "",
-                    "method": "animate"
-                } for period_idx in range(len(period_dates))
-            ]
+            "steps": slider_steps
         }]
     )
     
@@ -733,7 +763,7 @@ def money_flow_interface(analysis_data):
                 - 🟢 **Green nodes**: Growing trend vs previous period  
                 - 🔵 **Blue nodes**: Stable trend vs previous period
                 - **Node size**: Represents sector strength (larger = stronger)
-                - **Date slider**: Navigate by actual calendar dates (not periods)
+                - **Smooth slider**: Navigate through all interpolated frames with date markers
                 - **Ultra-smooth**: 12 interpolated frames between each {step_size} period
                 """)
                 
