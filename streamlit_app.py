@@ -584,23 +584,26 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             "yanchor": "top",
             "xanchor": "left",
             "currentvalue": {
-                "font": {"size": 16},
-                "prefix": "Period: ",
+                "font": {"size": 14},
+                "prefix": "Date: ",
                 "visible": True,
                 "xanchor": "right"
             },
-            "transition": {"duration": 300, "easing": "cubic-in-out"},
+            "transition": {"duration": 200, "easing": "cubic-in-out"},
             "pad": {"b": 10, "t": 50},
             "len": 0.9,
             "x": 0.1,
             "y": 0,
             "steps": [
                 {
-                    "args": [[f], {"frame": {"duration": 200, "redraw": True},
-                                  "mode": "immediate", "transition": {"duration": 200}}],
-                    "label": f"P{i//interpolation_steps + 1}" if i % interpolation_steps == 0 else "",
+                    "args": [[str(period_idx * interpolation_steps + interpolation_steps - 1)], {
+                        "frame": {"duration": 100, "redraw": True},
+                        "mode": "immediate", 
+                        "transition": {"duration": 100}
+                    }],
+                    "label": period_dates[period_idx].strftime("%Y-%m-%d") if period_idx < len(period_dates) else "",
                     "method": "animate"
-                } for i, f in enumerate([str(k) for k in range(len(animation_frames))])
+                } for period_idx in range(len(period_dates))
             ]
         }]
     )
@@ -730,8 +733,8 @@ def money_flow_interface(analysis_data):
                 - 🟢 **Green nodes**: Growing trend vs previous period  
                 - 🔵 **Blue nodes**: Stable trend vs previous period
                 - **Node size**: Represents sector strength (larger = stronger)
+                - **Date slider**: Navigate by actual calendar dates (not periods)
                 - **Ultra-smooth**: 12 interpolated frames between each {step_size} period
-                - **Easing curves**: Natural acceleration/deceleration for organic feel
                 """)
                 
                 # Get time series data for summary
