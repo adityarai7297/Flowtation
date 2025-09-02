@@ -415,8 +415,12 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     max_prob = np.max(all_probs)
     scale_factor = 60 / max_prob if max_prob > 0 else 1
     
+    # Compute correlation costs for optimal transport
+    correlation_costs = compute_correlation_costs(returns_df, window_years=3)
+    
     # Create smooth interpolated frames between period states
     animation_frames = []
+    flow_lines = []  # Store flow lines for each frame
     # More interpolation steps for smoother animation
     interpolation_steps = 12  # Number of smooth steps between each period
     
@@ -441,6 +445,12 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
         if period_idx < len(period_probabilities) - 1:
             next_probs = period_probabilities[period_idx + 1]
             next_sizes = next_probs * scale_factor + 20
+            
+            # Calculate optimal transport flow matrix
+            flow_matrix = ot.sinkhorn(current_probs, next_probs, correlation_costs, reg=0.01)
+            
+            # Normalize flows (make them sum to 1 for visualization)
+            flow_matrix = flow_matrix / np.sum(flow_matrix) if np.sum(flow_matrix) > 0 else flow_matrix
             
             # Calculate colors for the transition (based on where we're going)
             next_changes = next_probs - current_probs
@@ -470,7 +480,32 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                     # Blend colors in the middle section
                     frame_colors = colors  # Keep it simple for now
                 
-                # Create frame
+                # Create flow arrows for significant flows (above threshold)
+                frame_flows = []
+                flow_threshold = min_flow_threshold
+                
+                for i in range(n_sectors):
+                    for j in range(n_sectors):
+                        if i != j and flow_matrix[i, j] > flow_threshold:
+                            # Scale arrow opacity based on flow strength and interpolation
+                            flow_strength = flow_matrix[i, j]
+                            arrow_opacity = min(0.8, flow_strength * 10) * eased_t  # Fade in with animation
+                            
+                            # Create arrow from sector i to sector j
+                            arrow_trace = go.Scatter(
+                                x=[x_pos[i], x_pos[j]],
+                                y=[y_pos[i], y_pos[j]], 
+                                mode='lines',
+                                line=dict(
+                                    color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
+                                    width=max(1, flow_strength * 20),  # Scale width by flow
+                                ),
+                                showlegend=False,
+                                hoverinfo='skip'
+                            )
+                            frame_flows.append(arrow_trace)
+                
+                # Create frame with nodes
                 frame_data = go.Scatter(
                     x=x_pos,
                     y=y_pos,
@@ -486,7 +521,10 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                     textfont=dict(size=12, color='white', family="Arial Black"),
                     name=f"Period {period_idx + 1}.{step + 1}"
                 )
+                
+                # Add both nodes and flows to this frame
                 animation_frames.append(frame_data)
+                flow_lines.extend(frame_flows)
         else:
             # Final period - just add the final frame
             frame_data = go.Scatter(
@@ -506,14 +544,35 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             )
             animation_frames.append(frame_data)
     
-    # Create the figure with animation
-    fig = go.Figure(data=[animation_frames[0]])
+    # Create the figure with animation - include first frame flows
+    initial_data = [animation_frames[0]]
+    if flow_lines:
+        # Group flow lines by frame and add to initial data
+        flows_per_frame = len(flow_lines) // max(1, len(animation_frames) - len(period_probabilities) + 1)
+        initial_flows = flow_lines[:flows_per_frame] if flows_per_frame > 0 else []
+        initial_data.extend(initial_flows)
+    
+    fig = go.Figure(data=initial_data)
     
     # Create animation frames
     frames = []
+    flow_idx = 0
+    
     for frame_idx, frame_data in enumerate(animation_frames):
+        # Calculate which flows belong to this frame
+        frame_flows = []
+        if flow_lines and frame_idx < len(animation_frames) - len(period_probabilities) + 1:
+            flows_per_frame = interpolation_steps if interpolation_steps > 0 else 1
+            start_flow = flow_idx
+            end_flow = min(flow_idx + flows_per_frame, len(flow_lines))
+            frame_flows = flow_lines[start_flow:end_flow]
+            flow_idx = end_flow
+        
+        # Combine nodes and flows for this frame
+        frame_traces = [frame_data] + frame_flows
+        
         frames.append(go.Frame(
-            data=[frame_data],
+            data=frame_traces,
             name=str(frame_idx)
         ))
     
