@@ -351,14 +351,15 @@ def validate_timeframe_step_combination(window_units, window_type, step_size):
         step_days = 180
         rolling_window_periods = 2
     
-    # Calculate minimum required days
-    min_required_days = rolling_window_periods * step_days + step_days  # Extra step for computation
-    
-    # Calculate expected number of periods
+    # Calculate periods needed
     max_possible_periods = total_window_days // step_days
     usable_periods = max(0, max_possible_periods - rolling_window_periods)
     
-    is_valid = total_window_days >= min_required_days and usable_periods >= 2
+    # We need at least 2 usable periods for animation
+    min_periods_needed = rolling_window_periods + 2  # rolling window + 2 usable periods
+    min_required_days = min_periods_needed * step_days
+    
+    is_valid = usable_periods >= 2
     recommendation = None if is_valid else get_timeframe_recommendation(window_units, window_type, step_size, min_required_days)
     
     return {
@@ -684,9 +685,12 @@ def money_flow_interface(analysis_data):
                 **Issue**: {window_units} {window_type} with {step_size} steps doesn't provide enough periods for analysis.
                 
                 **Details**:
-                - Total window: {validation['total_window_days']} days
-                - Minimum required: {validation['min_required_days']} days
+                - Total window: {validation['total_window_days']} days ({window_units} {window_type})
+                - Step size: {validation['step_days']} days ({step_size})
+                - Rolling window needed: {validation['rolling_window_periods']} periods
+                - Max possible periods: {validation['max_possible_periods']} 
                 - Usable periods: {validation['usable_periods']} (need at least 2)
+                - Minimum required: {validation['min_required_days']} days for this combination
                 
                 **💡 Recommendation**: {validation['recommendation']}
                 
