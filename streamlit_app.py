@@ -416,7 +416,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     scale_factor = 60 / max_prob if max_prob > 0 else 1
     
     # Compute correlation costs for optimal transport
-    correlation_costs = compute_correlation_costs(returns_df, window_years=3)
+    correlation_costs, _ = compute_correlation_costs(returns_df, window_years=3)
     
     # Create smooth interpolated frames between period states
     animation_frames = []
