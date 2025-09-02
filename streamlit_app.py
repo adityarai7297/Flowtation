@@ -358,35 +358,30 @@ def validate_timeframe_step_combination(window_units, window_type, step_size):
     max_possible_periods = total_window_days // step_days
     usable_periods = max(0, max_possible_periods - rolling_window_periods)
     
+    is_valid = total_window_days >= min_required_days and usable_periods >= 2
+    recommendation = None if is_valid else get_timeframe_recommendation(window_units, window_type, step_size, min_required_days)
+    
     return {
-        'is_valid': total_window_days >= min_required_days and usable_periods >= 2,
+        'is_valid': is_valid,
         'total_window_days': total_window_days,
         'min_required_days': min_required_days,
         'step_days': step_days,
         'rolling_window_periods': rolling_window_periods,
         'max_possible_periods': max_possible_periods,
         'usable_periods': usable_periods,
-        'recommendation': get_timeframe_recommendation(window_units, window_type, step_size)
+        'recommendation': recommendation
     }
 
-def get_timeframe_recommendation(window_units, window_type, step_size):
+def get_timeframe_recommendation(window_units, window_type, step_size, min_required_days):
     """Get recommendation for fixing timeframe/step issues"""
-    validation = validate_timeframe_step_combination(window_units, window_type, step_size)
-    
-    if validation['is_valid']:
-        return None
-    
-    # Calculate minimum window needed for current step size
-    min_window_days = validation['min_required_days']
-    
     if window_type == 'weeks':
-        min_window_units = max(2, (min_window_days + 6) // 7)  # Round up
+        min_window_units = max(2, (min_required_days + 6) // 7)  # Round up
         return f"Try at least {min_window_units} weeks for {step_size} steps"
     elif window_type == 'months':
-        min_window_units = max(2, (min_window_days + 29) // 30)  # Round up
+        min_window_units = max(2, (min_required_days + 29) // 30)  # Round up
         return f"Try at least {min_window_units} months for {step_size} steps"
     else:  # years
-        min_window_units = max(1, (min_window_days + 364) // 365)  # Round up
+        min_window_units = max(1, (min_required_days + 364) // 365)  # Round up
         return f"Try at least {min_window_units} years for {step_size} steps"
 
 def create_time_lapse_flow_visualization(returns_df, sector_names, window_units, window_type, step_size, signal_type, temperature=0.8, min_flow_threshold=0.02):
