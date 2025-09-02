@@ -327,42 +327,88 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     max_prob = np.max(all_probs)
     scale_factor = 60 / max_prob if max_prob > 0 else 1
     
-    # Create frames for each time point
+    # Create smooth interpolated frames between weekly states
     animation_frames = []
+    interpolation_steps = 8  # Number of smooth steps between each week
     
-    for t_idx, (probs, date) in enumerate(zip(weekly_probabilities, weekly_dates)):
-        # Scale sizes consistently
-        current_sizes = probs * scale_factor + 20
+    for week_idx in range(len(weekly_probabilities)):
+        # Current week data
+        current_probs = weekly_probabilities[week_idx]
+        current_sizes = current_probs * scale_factor + 20
         
-        # Calculate colors based on trend (comparing to previous week if available)
-        if t_idx > 0:
-            prev_probs = weekly_probabilities[t_idx - 1]
-            changes = probs - prev_probs
+        # Calculate colors based on trend
+        if week_idx > 0:
+            prev_probs = weekly_probabilities[week_idx - 1]
+            changes = current_probs - prev_probs
             colors = [
                 'red' if change < -0.01 else 
                 'green' if change > 0.01 else 
                 'blue' for change in changes
             ]
         else:
-            colors = ['blue'] * n_sectors  # Neutral for first frame
+            colors = ['blue'] * n_sectors
         
-        # Create scatter plot for this time point
-        frame_data = go.Scatter(
-            x=x_pos,
-            y=y_pos,
-            mode='markers+text',
-            marker=dict(
-                size=current_sizes,
-                color=colors,
-                opacity=0.7,
-                line=dict(width=2, color='black')
-            ),
-            text=sector_names,
-            textposition="middle center",
-            textfont=dict(size=12, color='white', family="Arial Black"),
-            name=f"Week {t_idx + 1}"
-        )
-        animation_frames.append(frame_data)
+        # If this is not the last week, create interpolated frames to next week
+        if week_idx < len(weekly_probabilities) - 1:
+            next_probs = weekly_probabilities[week_idx + 1]
+            next_sizes = next_probs * scale_factor + 20
+            
+            # Calculate colors for the transition (based on where we're going)
+            next_changes = next_probs - current_probs
+            next_colors = [
+                'red' if change < -0.01 else 
+                'green' if change > 0.01 else 
+                'blue' for change in next_changes
+            ]
+            
+            # Create interpolated frames
+            for step in range(interpolation_steps):
+                t = step / interpolation_steps  # Interpolation factor (0 to 1)
+                
+                # Smooth interpolation between current and next states
+                interpolated_sizes = (1 - t) * current_sizes + t * next_sizes
+                
+                # Gradually transition colors (use current colors for first half, next colors for second half)
+                if t < 0.5:
+                    frame_colors = colors
+                else:
+                    frame_colors = next_colors
+                
+                # Create frame
+                frame_data = go.Scatter(
+                    x=x_pos,
+                    y=y_pos,
+                    mode='markers+text',
+                    marker=dict(
+                        size=interpolated_sizes,
+                        color=frame_colors,
+                        opacity=0.7,
+                        line=dict(width=2, color='black')
+                    ),
+                    text=sector_names,
+                    textposition="middle center",
+                    textfont=dict(size=12, color='white', family="Arial Black"),
+                    name=f"Week {week_idx + 1}.{step + 1}"
+                )
+                animation_frames.append(frame_data)
+        else:
+            # Final week - just add the final frame
+            frame_data = go.Scatter(
+                x=x_pos,
+                y=y_pos,
+                mode='markers+text',
+                marker=dict(
+                    size=current_sizes,
+                    color=colors,
+                    opacity=0.7,
+                    line=dict(width=2, color='black')
+                ),
+                text=sector_names,
+                textposition="middle center",
+                textfont=dict(size=12, color='white', family="Arial Black"),
+                name=f"Week {week_idx + 1}"
+            )
+            animation_frames.append(frame_data)
     
     # Create the figure with animation
     fig = go.Figure(data=[animation_frames[0]])
@@ -404,9 +450,15 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
         updatemenus=[{
             "buttons": [
                 {
-                    "args": [None, {"frame": {"duration": 500, "redraw": True},
-                                   "fromcurrent": True, "transition": {"duration": 200}}],
-                    "label": "▶️ Play Time-Lapse",
+                    "args": [None, {"frame": {"duration": 120, "redraw": True},
+                                   "fromcurrent": True, "transition": {"duration": 80}}],
+                    "label": "▶️ Play Smooth Time-Lapse",
+                    "method": "animate"
+                },
+                {
+                    "args": [None, {"frame": {"duration": 60, "redraw": True},
+                                   "fromcurrent": True, "transition": {"duration": 40}}],
+                    "label": "⚡ Play Fast",
                     "method": "animate"
                 },
                 {
@@ -442,11 +494,11 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             "y": 0,
             "steps": [
                 {
-                    "args": [[f], {"frame": {"duration": 300, "redraw": True},
-                                  "mode": "immediate", "transition": {"duration": 300}}],
-                    "label": f"W{i+1}",
+                    "args": [[f], {"frame": {"duration": 200, "redraw": True},
+                                  "mode": "immediate", "transition": {"duration": 200}}],
+                    "label": f"W{i//interpolation_steps + 1}" if i % interpolation_steps == 0 else "",
                     "method": "animate"
-                } for i, f in enumerate([str(k) for k in range(n_time_points)])
+                } for i, f in enumerate([str(k) for k in range(len(animation_frames))])
             ]
         }]
     )
@@ -526,14 +578,15 @@ def money_flow_interface(analysis_data):
                 st.plotly_chart(flow_fig, use_container_width=True, height=800)
                 
                 st.markdown(f"""
-                **📺 Time-Lapse Controls:**
-                - ▶️ **Play Time-Lapse**: Watch {window_units} {window_type} of week-over-week evolution
-                - 🔴 **Red nodes**: Declining vs previous week
-                - 🟢 **Green nodes**: Growing vs previous week  
-                - 🔵 **Blue nodes**: Stable/unchanged vs previous week
+                **📺 Smooth Time-Lapse Controls:**
+                - ▶️ **Play Smooth**: Watch organic growth/shrinkage over {window_units} {window_type}
+                - ⚡ **Play Fast**: Accelerated view for quick overview
+                - 🔴 **Red nodes**: Declining trend vs previous week
+                - 🟢 **Green nodes**: Growing trend vs previous week  
+                - 🔵 **Blue nodes**: Stable trend vs previous week
                 - **Node size**: Represents sector strength (larger = stronger)
-                - **Week slider**: Jump to any specific week
-                - **Speed**: 500ms per week for clear observation
+                - **Smooth interpolation**: 8 steps between each weekly state
+                - **Week slider**: Navigate through the timeline
                 """)
                 
                 # Get time series data for summary
