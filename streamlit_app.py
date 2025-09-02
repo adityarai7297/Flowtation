@@ -287,15 +287,20 @@ def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_fl
     inflows = np.sum(flow_matrix, axis=0)   # Money entering each sector
     net_flows = inflows - outflows
     
-    # Create node positions in a circle
+    # Create node positions in a circle with larger radius for better spacing
     angles = np.linspace(0, 2*np.pi, n_sectors, endpoint=False)
-    radius = 3
+    radius = 5  # Increased radius for better spacing
     x_pos = radius * np.cos(angles)
     y_pos = radius * np.sin(angles)
     
-    # Calculate sizes - initial (p0) and final (p1) probabilities
-    initial_sizes = p0 * 1000 + 100  # Scale for visibility, minimum size
-    final_sizes = p1 * 1000 + 100
+    # Calculate sizes with better scaling to prevent overflow
+    # Find max probability to scale appropriately
+    max_prob = max(np.max(p0), np.max(p1))
+    
+    # Scale sizes to fit in view (max size ~80, min size ~20)
+    scale_factor = 60 / max_prob if max_prob > 0 else 1
+    initial_sizes = p0 * scale_factor + 20  # Minimum size 20
+    final_sizes = p1 * scale_factor + 20
     
     # Create frames for animation
     n_frames = 30
@@ -323,7 +328,7 @@ def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_fl
             ),
             text=sector_names,
             textposition="middle center",
-            textfont=dict(size=10, color='white'),
+            textfont=dict(size=12, color='white', family="Arial Black"),
             name=f"Frame {frame}"
         )
         animation_frames.append(frame_data)
@@ -340,13 +345,13 @@ def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_fl
                 arrow_x = [x_pos[i], x_pos[j]]
                 arrow_y = [y_pos[i], y_pos[j]]
                 
-                # Add arrow line
+                # Add arrow line with better scaling
                 fig.add_trace(go.Scatter(
                     x=arrow_x,
                     y=arrow_y,
                     mode='lines',
                     line=dict(
-                        width=flow_matrix[i, j] * 50,  # Scale arrow thickness
+                        width=max(1, flow_matrix[i, j] * 30),  # Better scaled thickness
                         color='rgba(135, 206, 250, 0.6)'
                     ),
                     showlegend=False,
@@ -378,16 +383,30 @@ def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_fl
     
     fig.frames = frames
     
-    # Add animation controls
+    # Add animation controls with better layout
     fig.update_layout(
         title=dict(
             text="💰 Money Flow Animation<br><sub>🔴 Shrinking (Outflow) | 🟢 Growing (Inflow) | 🔵 Neutral</sub>",
-            x=0.5
+            x=0.5,
+            font=dict(size=16)
         ),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        xaxis=dict(
+            showgrid=False, 
+            zeroline=False, 
+            showticklabels=False,
+            range=[-7, 7]  # Fixed range to prevent overflow
+        ),
+        yaxis=dict(
+            showgrid=False, 
+            zeroline=False, 
+            showticklabels=False,
+            range=[-7, 7],  # Fixed range to prevent overflow
+            scaleanchor="x",  # Keep aspect ratio
+            scaleratio=1
+        ),
         showlegend=False,
-        height=600,
+        height=800,  # Increased height for full-page feel
+        margin=dict(l=50, r=50, t=100, b=100),  # Better margins
         annotations=arrow_annotations,
         updatemenus=[{
             "buttons": [
@@ -464,35 +483,40 @@ def money_flow_interface(analysis_data):
     st.header("💰 Money Flow Visualization")
     st.markdown("*Visualize capital flows between sectors using Plackett-Luce rankings and optimal transport*")
     
-    # Time window selection
-    col1, col2, col3 = st.columns([1, 1, 2])
-    
-    with col1:
-        window_units = st.number_input("Number of units", min_value=1, max_value=60, value=3)
-    
-    with col2:
-        window_type = st.selectbox("Time unit", ["weeks", "months", "years"])
-    
-    with col3:
-        signal_type = st.selectbox("Signal type", 
-                                  ["vol_adjusted", "simple_returns"],
-                                  help="Vol-adjusted: return/volatility, Simple: total returns")
-    
-    # Advanced parameters
-    with st.expander("Advanced Parameters"):
-        col1, col2, col3 = st.columns(3)
+    # Compact controls in a container
+    with st.container():
+        # Time window selection - more compact
+        col1, col2, col3, col4 = st.columns([1, 1, 1.5, 1])
+        
         with col1:
-            temperature = st.slider("Temperature (τ)", 0.1, 2.0, 0.8, 0.1,
-                                   help="Controls concentration of probabilities")
+            window_units = st.number_input("Units", min_value=1, max_value=60, value=3)
+        
         with col2:
-            epsilon = st.slider("Smoothness (ε)", 0.001, 0.1, 0.01, 0.001,
-                               help="Regularization for optimal transport")
+            window_type = st.selectbox("Period", ["weeks", "months", "years"])
+        
         with col3:
-            min_flow = st.slider("Min flow threshold", 0.01, 0.1, 0.02, 0.01,
-                                help="Minimum flow to display in visualization")
+            signal_type = st.selectbox("Signal", 
+                                      ["vol_adjusted", "simple_returns"],
+                                      help="Vol-adjusted: return/volatility, Simple: total returns")
+        
+        with col4:
+            visualize_btn = st.button("🚀 Visualize", type="primary", use_container_width=True)
+        
+        # Advanced parameters - collapsible for space
+        with st.expander("⚙️ Advanced Parameters", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                temperature = st.slider("Temperature (τ)", 0.1, 2.0, 0.8, 0.1,
+                                       help="Controls concentration of probabilities")
+            with col2:
+                epsilon = st.slider("Smoothness (ε)", 0.001, 0.1, 0.01, 0.001,
+                                   help="Regularization for optimal transport")
+            with col3:
+                min_flow = st.slider("Min flow threshold", 0.01, 0.1, 0.02, 0.01,
+                                    help="Minimum flow to display in visualization")
     
-    # Visualize button
-    if st.button("🚀 Visualize Money Flows", type="primary"):
+    # Visualize button (now moved to controls section)
+    if visualize_btn:
         with st.spinner("Computing sector strengths and optimal flows..."):
             
             # Get returns data
@@ -524,7 +548,7 @@ def money_flow_interface(analysis_data):
                 flow_matrix, returns_data.columns, p0, p1, min_flow
             )
             if flow_fig:
-                st.plotly_chart(flow_fig, use_container_width=True)
+                st.plotly_chart(flow_fig, use_container_width=True, height=800)
                 
                 st.markdown("""
                 **How to use the animation:**
@@ -536,40 +560,41 @@ def money_flow_interface(analysis_data):
                 - **Slider**: Scrub through time manually
                 """)
                 
-                # Flow summary table
-                st.subheader("📊 Flow Summary")
-                summary_df = create_flow_summary_table(flow_matrix, returns_data.columns, p0, p1)
-                
-                # Color code the table
-                def color_status(val):
-                    if '🔴' in str(val):
-                        return 'background-color: #f8d7da'
-                    elif '🟢' in str(val):
-                        return 'background-color: #d4edda'
-                    else:
-                        return 'background-color: #e2e3e5'
-                
-                styled_summary = summary_df.style.applymap(color_status, subset=['Status'])
-                st.dataframe(styled_summary, use_container_width=True)
-                
-                # Quick metrics
-                col1, col2, col3 = st.columns(3)
-                total_flow = np.sum(flow_matrix) * 100
-                max_flow = np.max(flow_matrix) * 100
-                n_significant_flows = np.sum(flow_matrix > min_flow)
+                # Flow summary - more compact layout
+                col1, col2 = st.columns([2, 1])
                 
                 with col1:
-                    st.metric("Total Flow", f"{total_flow:.1f}%")
+                    st.subheader("📊 Flow Summary")
+                    summary_df = create_flow_summary_table(flow_matrix, returns_data.columns, p0, p1)
+                    
+                    # Color code the table
+                    def color_status(val):
+                        if '🔴' in str(val):
+                            return 'background-color: #f8d7da'
+                        elif '🟢' in str(val):
+                            return 'background-color: #d4edda'
+                        else:
+                            return 'background-color: #e2e3e5'
+                    
+                    styled_summary = summary_df.style.applymap(color_status, subset=['Status'])
+                    st.dataframe(styled_summary, use_container_width=True, height=300)
+                
                 with col2:
+                    st.subheader("📈 Key Metrics")
+                    total_flow = np.sum(flow_matrix) * 100
+                    max_flow = np.max(flow_matrix) * 100
+                    n_significant_flows = np.sum(flow_matrix > min_flow)
+                    
+                    st.metric("Total Flow", f"{total_flow:.1f}%")
                     st.metric("Largest Single Flow", f"{max_flow:.1f}%")
-                with col3:
                     st.metric("Significant Flows", n_significant_flows)
 
 def main():
     st.set_page_config(
         page_title="SectorFlux Analytics",
         page_icon="📊",
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="collapsed"  # Give more space to main content
     )
     
     st.title("📊 SectorFlux Analytics")
