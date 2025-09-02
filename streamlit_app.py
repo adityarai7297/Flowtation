@@ -176,84 +176,110 @@ def compute_correlation_costs(returns_df, window_years=3):
     
     return cost_matrix, corr_matrix
 
-def compute_sector_strengths_over_time(returns_df, window_units, window_type, signal_type='vol_adjusted'):
+def compute_sector_strengths_time_series(returns_df, window_units, window_type, signal_type='vol_adjusted'):
     """
-    Compute sector strengths at t0 and t1 using Plackett-Luce model
+    Compute sector strengths over time with weekly rolling windows for time-lapse animation
     """
     # Convert window to days
     if window_type == 'weeks':
-        window_days = window_units * 7
-        subperiod_days = 1 if window_units <= 4 else 5  # daily vs weekly
+        total_window_days = window_units * 7
     elif window_type == 'months':
-        window_days = window_units * 30
-        subperiod_days = 1 if window_units <= 1 else 5
+        total_window_days = window_units * 30
     else:  # years
-        window_days = window_units * 365
-        subperiod_days = 5  # always weekly for years
+        total_window_days = window_units * 365
     
-    # Get the window of data
+    # Get the full data window
     end_date = returns_df.index[-1]
-    start_date = end_date - timedelta(days=window_days)
+    start_date = end_date - timedelta(days=total_window_days)
     
     # Filter data to window
     window_data = returns_df[returns_df.index >= start_date].copy()
     
-    if len(window_data) < 10:  # Not enough data
+    if len(window_data) < 14:  # Need at least 2 weeks
         return None, None, None
     
-    # Create subperiods
-    if subperiod_days == 1:  # Daily subperiods
-        subperiods = window_data.groupby(window_data.index.date)
-    else:  # Weekly subperiods
-        subperiods = window_data.resample('W')
+    # Create weekly periods for the time series
+    weekly_data = window_data.resample('W')
     
-    # Compute rankings for each subperiod
-    rankings_list = []
-    subperiod_dates = []
+    # Calculate rolling strengths over time
+    weekly_dates = []
+    weekly_strengths = []
+    weekly_probabilities = []
     
-    for date, period_data in subperiods:
-        if len(period_data) == 0:
+    # Use a 4-week rolling window to compute strengths
+    rolling_window_weeks = min(4, len(list(weekly_data)) // 2)
+    
+    all_weeks = list(weekly_data)
+    for i in range(rolling_window_weeks, len(all_weeks)):
+        # Get rolling window of weeks
+        rolling_weeks = all_weeks[i-rolling_window_weeks:i]
+        
+        # Compute rankings for this rolling window
+        rolling_rankings = []
+        for date, week_data in rolling_weeks:
+            if len(week_data) == 0:
+                continue
+                
+            if signal_type == 'vol_adjusted':
+                # Vol-adjusted returns for the week
+                week_returns = week_data.sum()
+                week_vol = week_data.std()
+                signal = week_returns / (week_vol + 1e-8)
+            else:  # simple returns
+                signal = week_data.sum()
+            
+            # Winsorize extremes
+            signal_winsorized = stats.mstats.winsorize(signal, limits=[0.01, 0.01])
+            
+            # Convert to rankings
+            ranks = stats.rankdata(-signal_winsorized, method='ordinal')
+            rolling_rankings.append(ranks)
+        
+        if len(rolling_rankings) < 2:
             continue
             
-        if signal_type == 'vol_adjusted':
-            # Vol-adjusted returns
-            period_returns = period_data.sum()  # Sum over the subperiod
-            period_vol = period_data.std()
-            signal = period_returns / (period_vol + 1e-8)  # Add small epsilon
-        else:  # simple returns
-            signal = period_data.sum()  # Total log returns
+        # Create rankings matrix for this window
+        rankings_matrix = pd.DataFrame(rolling_rankings, columns=returns_df.columns)
         
-        # Winsorize extremes (1-2%)
-        signal_winsorized = stats.mstats.winsorize(signal, limits=[0.01, 0.01])
-        
-        # Convert to rankings (1 = best performer)
-        ranks = stats.rankdata(-signal_winsorized, method='ordinal')
-        
-        rankings_list.append(ranks)
-        subperiod_dates.append(date)
+        # Compute strengths for this time point
+        try:
+            theta = plackett_luce_strength(rankings_matrix)
+            prob = strengths_to_probabilities(theta, temperature=0.8)
+            
+            weekly_dates.append(all_weeks[i-1][0])  # Use the end date of the window
+            weekly_strengths.append(theta)
+            weekly_probabilities.append(prob)
+        except:
+            continue
     
-    if len(rankings_list) < 2:
+    if len(weekly_strengths) < 2:
         return None, None, None
     
-    # Create rankings matrix
-    rankings_df = pd.DataFrame(rankings_list, 
-                              index=subperiod_dates,
-                              columns=returns_df.columns)
+    return weekly_strengths, weekly_probabilities, weekly_dates
+
+def compute_sector_strengths_over_time(returns_df, window_units, window_type, signal_type='vol_adjusted'):
+    """
+    Wrapper function to maintain compatibility - now returns time series data
+    """
+    weekly_strengths, weekly_probabilities, weekly_dates = compute_sector_strengths_time_series(
+        returns_df, window_units, window_type, signal_type
+    )
     
-    # Compute strengths at t0 (early window) and t1 (late window)
-    mid_point = len(rankings_df) // 2
-    
-    rankings_t0 = rankings_df.iloc[:mid_point]
-    rankings_t1 = rankings_df.iloc[mid_point:]
-    
-    # Fit Plackett-Luce models
-    try:
-        theta_t0 = plackett_luce_strength(rankings_t0)
-        theta_t1 = plackett_luce_strength(rankings_t1)
-        
-        return theta_t0, theta_t1, rankings_df
-    except:
+    if weekly_strengths is None:
         return None, None, None
+    
+    # Return first and last for compatibility
+    theta_t0 = weekly_strengths[0]
+    theta_t1 = weekly_strengths[-1]
+    
+    # Create a summary dataframe
+    rankings_df = pd.DataFrame({
+        'start_date': [weekly_dates[0]],
+        'end_date': [weekly_dates[-1]],
+        'n_periods': [len(weekly_dates)]
+    })
+    
+    return theta_t0, theta_t1, rankings_df
 
 def strengths_to_probabilities(theta, temperature=0.8):
     """Convert strengths to probabilities using temperature scaling"""
@@ -276,117 +302,85 @@ def compute_optimal_transport_flow(p0, p1, cost_matrix, epsilon=0.01):
         n = len(p0)
         return np.outer(p0, p1)
 
-def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_flow_threshold=0.02):
-    """Create animated flow visualization with resizing nodes"""
-    import time
+def create_time_lapse_flow_visualization(returns_df, sector_names, window_units, window_type, signal_type, temperature=0.8, min_flow_threshold=0.02):
+    """Create time-lapse animation showing week-over-week changes"""
+    
+    # Get time series data
+    weekly_strengths, weekly_probabilities, weekly_dates = compute_sector_strengths_time_series(
+        returns_df, window_units, window_type, signal_type
+    )
+    
+    if weekly_strengths is None:
+        return None
     
     n_sectors = len(sector_names)
+    n_time_points = len(weekly_probabilities)
     
-    # Calculate net flows (inflow - outflow) for each sector
-    outflows = np.sum(flow_matrix, axis=1)  # Money leaving each sector
-    inflows = np.sum(flow_matrix, axis=0)   # Money entering each sector
-    net_flows = inflows - outflows
-    
-    # Create node positions in a circle with larger radius for better spacing
+    # Create node positions in a circle
     angles = np.linspace(0, 2*np.pi, n_sectors, endpoint=False)
-    radius = 5  # Increased radius for better spacing
+    radius = 5
     x_pos = radius * np.cos(angles)
     y_pos = radius * np.sin(angles)
     
-    # Calculate sizes with better scaling to prevent overflow
-    # Find max probability to scale appropriately
-    max_prob = max(np.max(p0), np.max(p1))
-    
-    # Scale sizes to fit in view (max size ~80, min size ~20)
+    # Find max probability across all time points for consistent scaling
+    all_probs = np.concatenate(weekly_probabilities)
+    max_prob = np.max(all_probs)
     scale_factor = 60 / max_prob if max_prob > 0 else 1
-    initial_sizes = p0 * scale_factor + 20  # Minimum size 20
-    final_sizes = p1 * scale_factor + 20
     
-    # Create frames for animation
-    n_frames = 30
+    # Create frames for each time point
     animation_frames = []
     
-    for frame in range(n_frames + 1):
-        # Interpolate between initial and final sizes
-        t = frame / n_frames
-        current_sizes = (1 - t) * initial_sizes + t * final_sizes
+    for t_idx, (probs, date) in enumerate(zip(weekly_probabilities, weekly_dates)):
+        # Scale sizes consistently
+        current_sizes = probs * scale_factor + 20
         
-        # Create scatter plot for this frame
+        # Calculate colors based on trend (comparing to previous week if available)
+        if t_idx > 0:
+            prev_probs = weekly_probabilities[t_idx - 1]
+            changes = probs - prev_probs
+            colors = [
+                'red' if change < -0.01 else 
+                'green' if change > 0.01 else 
+                'blue' for change in changes
+            ]
+        else:
+            colors = ['blue'] * n_sectors  # Neutral for first frame
+        
+        # Create scatter plot for this time point
         frame_data = go.Scatter(
             x=x_pos,
             y=y_pos,
             mode='markers+text',
             marker=dict(
                 size=current_sizes,
-                color=[
-                    'red' if net_flow < -0.02 else 
-                    'green' if net_flow > 0.02 else 
-                    'blue' for net_flow in net_flows
-                ],
+                color=colors,
                 opacity=0.7,
                 line=dict(width=2, color='black')
             ),
             text=sector_names,
             textposition="middle center",
             textfont=dict(size=12, color='white', family="Arial Black"),
-            name=f"Frame {frame}"
+            name=f"Week {t_idx + 1}"
         )
         animation_frames.append(frame_data)
     
     # Create the figure with animation
     fig = go.Figure(data=[animation_frames[0]])
     
-    # Add flow arrows for significant flows
-    arrow_annotations = []
-    for i in range(n_sectors):
-        for j in range(n_sectors):
-            if i != j and flow_matrix[i, j] > min_flow_threshold:
-                # Calculate arrow position
-                arrow_x = [x_pos[i], x_pos[j]]
-                arrow_y = [y_pos[i], y_pos[j]]
-                
-                # Add arrow line with better scaling
-                fig.add_trace(go.Scatter(
-                    x=arrow_x,
-                    y=arrow_y,
-                    mode='lines',
-                    line=dict(
-                        width=max(1, flow_matrix[i, j] * 30),  # Better scaled thickness
-                        color='rgba(135, 206, 250, 0.6)'
-                    ),
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
-                
-                # Add arrowhead annotation
-                arrow_annotations.append(
-                    dict(
-                        x=x_pos[j],
-                        y=y_pos[j],
-                        ax=x_pos[i],
-                        ay=y_pos[i],
-                        arrowhead=3,
-                        arrowsize=2,
-                        arrowwidth=2,
-                        arrowcolor='rgba(135, 206, 250, 0.8)',
-                        showarrow=True
-                    )
-                )
-    
     # Create animation frames
     frames = []
     for frame_idx, frame_data in enumerate(animation_frames):
         frames.append(go.Frame(
-            data=[frame_data] + [trace for trace in fig.data[1:]],  # Keep arrows
+            data=[frame_data],
             name=str(frame_idx)
         ))
     
     fig.frames = frames
     
-    # Add animation controls with better layout
+    # Add animation controls for time-lapse
     fig.update_layout(
         title=dict(
-            text="💰 Money Flow Animation<br><sub>🔴 Shrinking (Outflow) | 🟢 Growing (Inflow) | 🔵 Neutral</sub>",
+            text=f"📈 Time-Lapse: {window_units} {window_type.title()} Money Flow Evolution<br><sub>🔴 Declining | 🟢 Growing | 🔵 Stable (Week-over-Week)</sub>",
             x=0.5,
             font=dict(size=16)
         ),
@@ -394,26 +388,25 @@ def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_fl
             showgrid=False, 
             zeroline=False, 
             showticklabels=False,
-            range=[-7, 7]  # Fixed range to prevent overflow
+            range=[-7, 7]
         ),
         yaxis=dict(
             showgrid=False, 
             zeroline=False, 
             showticklabels=False,
-            range=[-7, 7],  # Fixed range to prevent overflow
-            scaleanchor="x",  # Keep aspect ratio
+            range=[-7, 7],
+            scaleanchor="x",
             scaleratio=1
         ),
         showlegend=False,
-        height=800,  # Increased height for full-page feel
-        margin=dict(l=50, r=50, t=100, b=100),  # Better margins
-        annotations=arrow_annotations,
+        height=800,
+        margin=dict(l=50, r=50, t=100, b=100),
         updatemenus=[{
             "buttons": [
                 {
-                    "args": [None, {"frame": {"duration": 100, "redraw": True},
-                                   "fromcurrent": True, "transition": {"duration": 50}}],
-                    "label": "▶️ Play",
+                    "args": [None, {"frame": {"duration": 500, "redraw": True},
+                                   "fromcurrent": True, "transition": {"duration": 200}}],
+                    "label": "▶️ Play Time-Lapse",
                     "method": "animate"
                 },
                 {
@@ -437,8 +430,8 @@ def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_fl
             "yanchor": "top",
             "xanchor": "left",
             "currentvalue": {
-                "font": {"size": 20},
-                "prefix": "Time: ",
+                "font": {"size": 16},
+                "prefix": "Week: ",
                 "visible": True,
                 "xanchor": "right"
             },
@@ -451,9 +444,9 @@ def create_animated_flow_visualization(flow_matrix, sector_names, p0, p1, min_fl
                 {
                     "args": [[f], {"frame": {"duration": 300, "redraw": True},
                                   "mode": "immediate", "transition": {"duration": 300}}],
-                    "label": f"T+{i}",
+                    "label": f"W{i+1}",
                     "method": "animate"
-                } for i, f in enumerate([str(k) for k in range(n_frames + 1)])
+                } for i, f in enumerate([str(k) for k in range(n_time_points)])
             ]
         }]
     )
@@ -522,72 +515,79 @@ def money_flow_interface(analysis_data):
             # Get returns data
             returns_data = analysis_data['returns_daily']
             
-            # Compute sector strengths
-            theta_t0, theta_t1, rankings_df = compute_sector_strengths_over_time(
-                returns_data, window_units, window_type, signal_type
-            )
+            # Main time-lapse flow visualization
+            st.subheader("📈 Time-Lapse Money Flow Evolution")
             
-            if theta_t0 is None:
-                st.error("❌ Insufficient data for the selected time window. Try a shorter period.")
-                return
-            
-            # Convert to probabilities
-            p0 = strengths_to_probabilities(theta_t0, temperature)
-            p1 = strengths_to_probabilities(theta_t1, temperature)
-            
-            # Compute cost matrix
-            cost_matrix, corr_matrix = compute_correlation_costs(returns_data)
-            
-            # Compute optimal transport flow
-            flow_matrix = compute_optimal_transport_flow(p0, p1, cost_matrix, epsilon)
-            
-            # Main animated flow visualization
-            st.subheader("🎬 Animated Money Flow")
-            
-            flow_fig = create_animated_flow_visualization(
-                flow_matrix, returns_data.columns, p0, p1, min_flow
+            flow_fig = create_time_lapse_flow_visualization(
+                returns_data, returns_data.columns, window_units, window_type, 
+                signal_type, temperature, min_flow
             )
             if flow_fig:
                 st.plotly_chart(flow_fig, use_container_width=True, height=800)
                 
-                st.markdown("""
-                **How to use the animation:**
-                - ▶️ **Play**: Watch sectors grow/shrink based on money flows
-                - 🔴 **Red nodes**: Money flowing OUT (shrinking)
-                - 🟢 **Green nodes**: Money flowing IN (growing)  
-                - 🔵 **Blue nodes**: Neutral/balanced flows
-                - **Arrows**: Show direction and magnitude of flows
-                - **Slider**: Scrub through time manually
+                st.markdown(f"""
+                **📺 Time-Lapse Controls:**
+                - ▶️ **Play Time-Lapse**: Watch {window_units} {window_type} of week-over-week evolution
+                - 🔴 **Red nodes**: Declining vs previous week
+                - 🟢 **Green nodes**: Growing vs previous week  
+                - 🔵 **Blue nodes**: Stable/unchanged vs previous week
+                - **Node size**: Represents sector strength (larger = stronger)
+                - **Week slider**: Jump to any specific week
+                - **Speed**: 500ms per week for clear observation
                 """)
                 
-                # Flow summary - more compact layout
-                col1, col2 = st.columns([2, 1])
+                # Get time series data for summary
+                weekly_strengths, weekly_probabilities, weekly_dates = compute_sector_strengths_time_series(
+                    returns_data, window_units, window_type, signal_type
+                )
                 
-                with col1:
-                    st.subheader("📊 Flow Summary")
-                    summary_df = create_flow_summary_table(flow_matrix, returns_data.columns, p0, p1)
+                if weekly_strengths is not None:
+                    # Summary with time series data
+                    col1, col2 = st.columns([2, 1])
                     
-                    # Color code the table
-                    def color_status(val):
-                        if '🔴' in str(val):
-                            return 'background-color: #f8d7da'
-                        elif '🟢' in str(val):
-                            return 'background-color: #d4edda'
-                        else:
-                            return 'background-color: #e2e3e5'
+                    with col1:
+                        st.subheader("📊 Evolution Summary")
+                        
+                        # Create summary showing start vs end
+                        start_probs = weekly_probabilities[0]
+                        end_probs = weekly_probabilities[-1]
+                        
+                        evolution_df = pd.DataFrame({
+                            'Sector': returns_data.columns,
+                            'Week 1 (%)': (start_probs * 100).round(1),
+                            f'Week {len(weekly_probabilities)} (%)': (end_probs * 100).round(1),
+                            'Total Change (%)': ((end_probs - start_probs) * 100).round(1),
+                            'Trend': ['🔴 Declined' if change < -1 else '🟢 Gained' if change > 1 else '🔵 Stable' 
+                                     for change in (end_probs - start_probs) * 100]
+                        })
+                        
+                        # Color code the table
+                        def color_trend(val):
+                            if '🔴' in str(val):
+                                return 'background-color: #f8d7da'
+                            elif '🟢' in str(val):
+                                return 'background-color: #d4edda'
+                            else:
+                                return 'background-color: #e2e3e5'
+                        
+                        styled_evolution = evolution_df.style.applymap(color_trend, subset=['Trend'])
+                        st.dataframe(styled_evolution, use_container_width=True, height=300)
                     
-                    styled_summary = summary_df.style.applymap(color_status, subset=['Status'])
-                    st.dataframe(styled_summary, use_container_width=True, height=300)
-                
-                with col2:
-                    st.subheader("📈 Key Metrics")
-                    total_flow = np.sum(flow_matrix) * 100
-                    max_flow = np.max(flow_matrix) * 100
-                    n_significant_flows = np.sum(flow_matrix > min_flow)
-                    
-                    st.metric("Total Flow", f"{total_flow:.1f}%")
-                    st.metric("Largest Single Flow", f"{max_flow:.1f}%")
-                    st.metric("Significant Flows", n_significant_flows)
+                    with col2:
+                        st.subheader("📈 Time-Lapse Stats")
+                        
+                        # Calculate volatility of changes
+                        all_changes = []
+                        for i in range(1, len(weekly_probabilities)):
+                            changes = weekly_probabilities[i] - weekly_probabilities[i-1]
+                            all_changes.extend(np.abs(changes))
+                        
+                        avg_weekly_change = np.mean(all_changes) * 100
+                        max_weekly_change = np.max(all_changes) * 100
+                        
+                        st.metric("Time Points", len(weekly_probabilities))
+                        st.metric("Avg Weekly Change", f"{avg_weekly_change:.1f}%")
+                        st.metric("Max Weekly Change", f"{max_weekly_change:.1f}%")
 
 def main():
     st.set_page_config(
