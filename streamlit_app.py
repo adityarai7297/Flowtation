@@ -485,6 +485,17 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                 # Smooth interpolation between current and next states
                 interpolated_sizes = (1 - eased_t) * current_sizes + eased_t * next_sizes
                 
+                # Calculate intermediate probability distributions for this frame
+                interpolated_current_probs = (1 - eased_t) * current_probs_np + eased_t * next_probs_np
+                interpolated_next_probs = next_probs_np  # Target remains the same
+                
+                # Calculate flow matrix for this specific interpolation frame
+                try:
+                    frame_flow_matrix = ot.sinkhorn(interpolated_current_probs, interpolated_next_probs, correlation_costs_np, reg=0.01)
+                except Exception:
+                    # Fallback: interpolate the original flow matrix
+                    frame_flow_matrix = flow_matrix
+                
                 # Gradually transition colors (use current colors for first third, transition in middle, next colors in last third)
                 if t < 0.33:
                     frame_colors = colors
@@ -509,8 +520,8 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                 if max_velocity > 0.1:  # Threshold for meaningful change
                     for i in range(n_sectors):
                         for j in range(n_sectors):
-                            if i != j and flow_matrix[i, j] > flow_threshold:
-                                flow_strength = flow_matrix[i, j]
+                            if i != j and frame_flow_matrix[i, j] > flow_threshold:
+                                flow_strength = frame_flow_matrix[i, j]
                                 
                                 # Arrow opacity based on how much the source and target nodes are changing
                                 source_velocity = size_velocity[i] if i < len(size_velocity) else 0
