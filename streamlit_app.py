@@ -485,16 +485,15 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                 # Smooth interpolation between current and next states
                 interpolated_sizes = (1 - eased_t) * current_sizes + eased_t * next_sizes
                 
-                # Calculate intermediate probability distributions for this frame
-                interpolated_current_probs = (1 - eased_t) * current_probs_np + eased_t * next_probs_np
-                interpolated_next_probs = next_probs_np  # Target remains the same
+                # CORRECT APPROACH: Scale the original period flow based on transition progress
+                # The flow matrix represents the TOTAL flow for this period transition
+                # At each frame, we show a portion of that flow based on how much change is happening
                 
-                # Calculate flow matrix for this specific interpolation frame
-                try:
-                    frame_flow_matrix = ot.sinkhorn(interpolated_current_probs, interpolated_next_probs, correlation_costs_np, reg=0.01)
-                except Exception:
-                    # Fallback: interpolate the original flow matrix
-                    frame_flow_matrix = flow_matrix
+                # The flow intensity should match the rate of node size change
+                transition_intensity = eased_t * (1 - eased_t) * 4  # Derivative of easing curve
+                
+                # Scale the original flow matrix by transition intensity
+                frame_flow_matrix = flow_matrix * transition_intensity
                 
                 # Gradually transition colors (use current colors for first third, transition in middle, next colors in last third)
                 if t < 0.33:
@@ -505,49 +504,33 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                     # Blend colors in the middle section
                     frame_colors = colors  # Keep it simple for now
                 
-                # Create flow arrows - LOGICAL RULE: Any node size change MUST show flows
+                # Create flow arrows - SIMPLE AND CORRECT: Show flows when they're active
                 frame_flows = []
                 
-                # Calculate how much each node is changing
-                size_changes = np.abs(next_sizes - current_sizes) * eased_t
-                significant_change_threshold = 0.5  # Much lower threshold
-                
-                # For each sector with significant size change, show ALL its flows
-                for i in range(n_sectors):
-                    if size_changes[i] > significant_change_threshold:
-                        # This node is changing - show ALL its flows (in and out)
+                # Only show arrows if there's meaningful transition happening (transition_intensity > threshold)
+                if transition_intensity > 0.01:  # Threshold for showing any flows
+                    
+                    for i in range(n_sectors):
                         for j in range(n_sectors):
-                            if i != j:
-                                # Check both directions: i->j (outflow) and j->i (inflow)
-                                flows_to_show = []
+                            if i != j and frame_flow_matrix[i, j] > min_flow_threshold:
+                                flow_strength = frame_flow_matrix[i, j]
                                 
-                                # Outflow from changing node i to j
-                                if frame_flow_matrix[i, j] > min_flow_threshold * 0.1:  # Much lower threshold
-                                    flows_to_show.append((i, j, frame_flow_matrix[i, j]))
+                                # Arrow opacity is directly proportional to flow strength
+                                arrow_opacity = min(0.8, flow_strength * 30)
                                 
-                                # Inflow to changing node i from j  
-                                if frame_flow_matrix[j, i] > min_flow_threshold * 0.1:
-                                    flows_to_show.append((j, i, frame_flow_matrix[j, i]))
-                                
-                                # Create arrows for all flows involving the changing node
-                                for source, target, flow_strength in flows_to_show:
-                                    # Base opacity on flow strength and size change magnitude
-                                    change_factor = size_changes[i] / max(size_changes) if max(size_changes) > 0 else 1
-                                    arrow_opacity = min(0.8, flow_strength * 20) * change_factor * 0.7
-                                    
-                                    if arrow_opacity > 0.02:  # Very low threshold to show all logical flows
-                                        arrow_trace = go.Scatter(
-                                            x=[x_pos[source], x_pos[target]],
-                                            y=[y_pos[source], y_pos[target]], 
-                                            mode='lines',
-                                            line=dict(
-                                                color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
-                                                width=max(0.5, flow_strength * 25),  # Scale width by flow
-                                            ),
-                                            showlegend=False,
-                                            hoverinfo='skip'
-                                        )
-                                        frame_flows.append(arrow_trace)
+                                if arrow_opacity > 0.05:
+                                    arrow_trace = go.Scatter(
+                                        x=[x_pos[i], x_pos[j]],
+                                        y=[y_pos[i], y_pos[j]], 
+                                        mode='lines',
+                                        line=dict(
+                                            color=f'rgba(255, 165, 0, {arrow_opacity})',  # Orange arrows
+                                            width=max(1, flow_strength * 40),  # Scale width by flow
+                                        ),
+                                        showlegend=False,
+                                        hoverinfo='skip'
+                                    )
+                                    frame_flows.append(arrow_trace)
                 
                 # Create frame with nodes
                 frame_data = go.Scatter(
