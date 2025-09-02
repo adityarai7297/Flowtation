@@ -519,11 +519,10 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     
     fig.frames = frames
     
-    # Create smooth slider steps for all frames
-    slider_steps = []
+    # Create date lookup for hover functionality
     total_frames = len(animation_frames)
+    frame_dates = []
     
-    # Create steps for smooth navigation through all interpolated frames
     for frame_idx in range(total_frames):
         # Calculate which period we're in
         period_idx = frame_idx // interpolation_steps
@@ -543,27 +542,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
         else:
             display_date = period_dates[-1] if period_dates else date.today()
         
-        # Show labels at the START of each step period (when interpolation cycle begins)
-        # This aligns dividers with actual step periods
-        if frame_idx % interpolation_steps == 0:
-            # This is the start of a new step period
-            label = display_date.strftime("%m/%d")
-        elif frame_idx == total_frames - 1:
-            # Always show the final frame
-            label = display_date.strftime("%m/%d")
-        else:
-            # Intermediate interpolation frames - no label
-            label = ""
-        
-        slider_steps.append({
-            "args": [[str(frame_idx)], {
-                "frame": {"duration": 50, "redraw": True},
-                "mode": "immediate", 
-                "transition": {"duration": 50}
-            }],
-            "label": label,
-            "method": "animate"
-        })
+        frame_dates.append(display_date)
     
     # Add animation controls for time-lapse
     fig.update_layout(
@@ -631,16 +610,27 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             "xanchor": "left",
             "currentvalue": {
                 "font": {"size": 14},
-                "prefix": "Progress: ",
+                "prefix": "Date: ",
                 "visible": True,
                 "xanchor": "right"
             },
-            "transition": {"duration": 100, "easing": "cubic-in-out"},
+            "transition": {"duration": 50, "easing": "linear"},
             "pad": {"b": 10, "t": 50},
             "len": 0.9,
             "x": 0.1,
             "y": 0,
-            "steps": slider_steps
+            "steps": [
+                {
+                    "args": [[str(frame_idx)], {
+                        "frame": {"duration": 0, "redraw": True},
+                        "mode": "immediate", 
+                        "transition": {"duration": 0}
+                    }],
+                    "label": "",  # No labels/dividers
+                    "method": "animate",
+                    "value": frame_idx / (total_frames - 1) if total_frames > 1 else 0  # Normalized position
+                } for frame_idx in range(total_frames)
+            ]
         }]
     )
     
@@ -758,19 +748,41 @@ def money_flow_interface(analysis_data):
                 step_size, signal_type, temperature, min_flow
             )
             if flow_fig:
+                # Add play-between-points controls
+                col1, col2, col3 = st.columns([1, 1, 2])
+                
+                with col1:
+                    start_date = st.date_input(
+                        "Start Date",
+                        value=period_dates[0] if period_dates else date.today(),
+                        help="Set start point for animation segment"
+                    )
+                
+                with col2:
+                    end_date = st.date_input(
+                        "End Date", 
+                        value=period_dates[-1] if period_dates else date.today(),
+                        help="Set end point for animation segment"
+                    )
+                
+                with col3:
+                    if st.button("🎬 Play Between Selected Dates", help="Play animation only between the selected date range"):
+                        st.info(f"Playing from {start_date} to {end_date}")
+                
                 st.plotly_chart(flow_fig, use_container_width=True, height=800)
                 
                 st.markdown(f"""
-                **📺 Ultra-Smooth Time-Lapse Controls:**
+                **📺 Clean Time-Lapse Controls:**
                 - ▶️ **Play Smooth**: Organic growth/shrinkage over {window_units} {window_type} ({step_size} steps)
                 - ⚡ **Play Fast**: Accelerated view for quick overview
                 - 🚀 **Play Ultra-Fast**: Lightning-fast scan of the entire period
+                - 🎬 **Play Between Dates**: Set custom start/end points above
                 - 🔴 **Red nodes**: Declining trend vs previous period
                 - 🟢 **Green nodes**: Growing trend vs previous period  
                 - 🔵 **Blue nodes**: Stable trend vs previous period
                 - **Node size**: Represents sector strength (larger = stronger)
-                - **Period-aligned slider**: Dividers align with each {step_size} step period
-                - **Ultra-smooth**: 12 interpolated frames between each {step_size} period
+                - **Clean slider**: No dividers, hover shows exact dates
+                - **Date selection**: Use date pickers above to analyze specific periods
                 """)
                 
                 # Get time series data for summary
