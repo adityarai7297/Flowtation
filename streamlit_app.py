@@ -635,7 +635,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
         }]
     )
     
-    return fig, validation
+    return fig, frame_dates
 
 def create_flow_summary_table(flow_matrix, sector_names, p0, p1):
     """Create a summary table of the flows"""
@@ -749,11 +749,14 @@ def money_flow_interface(analysis_data):
                 returns_data, window_units, window_type, step_size, signal_type
             )
             
-            flow_fig, _ = create_time_lapse_flow_visualization(
+            flow_fig, frame_dates = create_time_lapse_flow_visualization(
                 returns_data, returns_data.columns, window_units, window_type, 
                 step_size, signal_type, temperature, min_flow
             )
             if flow_fig:
+                # Calculate total frames from the returned frame_dates
+                total_frames = len(frame_dates) if frame_dates else len(period_dates)
+                
                 # Video trimming style range selector
                 st.markdown("**🎬 Video Trimming Style Timeline Crop:**")
                 
@@ -768,8 +771,8 @@ def money_flow_interface(analysis_data):
                     trim_range = st.slider(
                         "📐 Trim Timeline (Drag handles to set start/end points)",
                         min_value=0,
-                        max_value=total_frames - 1,
-                        value=(0, total_frames - 1),
+                        max_value=max(0, total_frames - 1),
+                        value=(0, max(0, total_frames - 1)),
                         help="Drag the left handle to set start point, right handle for end point"
                     )
                     
