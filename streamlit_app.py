@@ -447,7 +447,21 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
             next_sizes = next_probs * scale_factor + 20
             
             # Calculate optimal transport flow matrix
-            flow_matrix = ot.sinkhorn(current_probs, next_probs, correlation_costs, reg=0.01)
+            # Ensure all inputs are numpy arrays with proper dtype
+            current_probs_np = np.array(current_probs, dtype=np.float64)
+            next_probs_np = np.array(next_probs, dtype=np.float64)
+            correlation_costs_np = np.array(correlation_costs, dtype=np.float64)
+            
+            # Normalize probabilities to ensure they sum to 1
+            current_probs_np = current_probs_np / np.sum(current_probs_np)
+            next_probs_np = next_probs_np / np.sum(next_probs_np)
+            
+            try:
+                flow_matrix = ot.sinkhorn(current_probs_np, next_probs_np, correlation_costs_np, reg=0.01)
+            except Exception as e:
+                # Fallback: use simple proportional flow if optimal transport fails
+                st.warning(f"Optimal transport calculation failed, using proportional flow: {e}")
+                flow_matrix = np.outer(current_probs_np, next_probs_np)
             
             # Normalize flows (make them sum to 1 for visualization)
             flow_matrix = flow_matrix / np.sum(flow_matrix) if np.sum(flow_matrix) > 0 else flow_matrix
