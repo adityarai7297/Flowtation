@@ -98,95 +98,7 @@ def prepare_data_for_analysis(df):
     
     return analysis_data
 
-def display_data_overview(df, metadata, analysis_data):
-    """Display data overview and statistics"""
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Tickers", len(metadata['tickers']))
-    
-    with col2:
-        st.metric("Total Records", f"{metadata['rows']:,}")
-    
-    with col3:
-        st.metric("Date Range", f"{metadata['date_min']} to {metadata['date_max']}")
-    
-    with col4:
-        data_age = (datetime.now().date() - pd.to_datetime(metadata['date_max']).date()).days
-        st.metric("Data Age", f"{data_age} days")
-    
-    # Data quality checks
-    st.subheader("📊 Data Quality")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Tickers Available:**")
-        tickers = sorted(metadata['tickers'])
-        st.write(", ".join(tickers))
-    
-    with col2:
-        st.write("**Ready for Analysis:**")
-        st.success(f"✅ Daily returns: {len(analysis_data['returns_daily'])} days")
-        st.success(f"✅ Monthly returns: {len(analysis_data['returns_monthly'])} months")
-        st.success(f"✅ Performance periods: {len(analysis_data['performance_periods'])} timeframes")
 
-def display_recent_performance(analysis_data):
-    """Display recent performance for quick overview"""
-    st.subheader("🏆 Recent Performance Rankings")
-    
-    performance = analysis_data['performance_periods']
-    
-    # Create tabs for different periods
-    periods = list(performance.keys())
-    tabs = st.tabs(periods)
-    
-    for i, period in enumerate(periods):
-        with tabs[i]:
-            perf_data = performance[period]
-            
-            # Create a nice dataframe for display
-            perf_df = pd.DataFrame({
-                'Ticker': perf_data.index,
-                'Return (%)': perf_data.values.round(2),
-                'Rank': range(1, len(perf_data) + 1)
-            })
-            
-            # Color coding
-            def color_performance(val):
-                if val > 5:
-                    return 'background-color: #d4edda'  # Light green
-                elif val > 0:
-                    return 'background-color: #fff3cd'  # Light yellow
-                else:
-                    return 'background-color: #f8d7da'  # Light red
-            
-            styled_df = perf_df.style.applymap(color_performance, subset=['Return (%)'])
-            st.dataframe(styled_df, use_container_width=True)
-
-def display_data_sample(df):
-    """Display sample of raw data"""
-    st.subheader("📋 Raw Data Sample")
-    
-    # Show recent data
-    recent_data = df.sort_values(['date', 'ticker']).tail(20)
-    st.dataframe(recent_data, use_container_width=True)
-    
-    # Show data types and info
-    with st.expander("Data Schema & Info"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Data Types:**")
-            schema_df = pd.DataFrame({
-                'Column': df.dtypes.index,
-                'Type': df.dtypes.values.astype(str)
-            })
-            st.dataframe(schema_df, use_container_width=True)
-        
-        with col2:
-            st.write("**Summary Statistics:**")
-            numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
-            st.dataframe(df[numeric_cols].describe(), use_container_width=True)
 
 def plackett_luce_strength(rankings_matrix, max_iter=100, tol=1e-6):
     """
@@ -554,51 +466,18 @@ def main():
         st.error("❌ Failed to process data.")
         st.stop()
     
-    # Success message
-    st.success(f"✅ Successfully loaded {len(df):,} records from {len(metadata['tickers'])} tickers")
+    # Quick data summary
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Tickers", len(metadata['tickers']))
+    with col2:
+        st.metric("Records", f"{metadata['rows']:,}")
+    with col3:
+        data_age = (datetime.now().date() - pd.to_datetime(metadata['date_max']).date()).days
+        st.metric("Data Age", f"{data_age} days")
     
-    # Navigation tabs
-    tab1, tab2 = st.tabs(["📊 Data Overview", "💰 Money Flow Analysis"])
-    
-    with tab1:
-        # Display overview
-        display_data_overview(df, metadata, analysis_data)
-        
-        # Display recent performance
-        display_recent_performance(analysis_data)
-        
-        # Data sample
-        display_data_sample(df)
-        
-        # Analysis readiness indicator
-        st.subheader("🚀 Ready for Rank Algorithms")
-        st.info("""
-        **Data is now prepared for rank algorithm processing:**
-        - ✅ Daily, weekly, monthly returns calculated
-        - ✅ Performance periods (1M, 3M, 6M, 1Y) computed
-        - ✅ Volatility metrics available
-        - ✅ Latest prices and volume data ready
-        - ✅ All data cleaned and formatted for analysis
-        
-        **Available datasets in `analysis_data`:**
-        - `returns_daily`, `returns_weekly`, `returns_monthly`
-        - `prices`, `volume`, `latest_prices`
-        - `performance_periods`, `volatility`
-        """)
-        
-        # Export option for algorithms
-        if st.button("📥 Export Processed Data for Algorithm Development"):
-            # Create download links for processed data
-            st.download_button(
-                label="Download Daily Returns (CSV)",
-                data=analysis_data['returns_daily'].to_csv(),
-                file_name=f"daily_returns_{date.today()}.csv",
-                mime="text/csv"
-            )
-    
-    with tab2:
-        # Money flow visualization
-        money_flow_interface(analysis_data)
+    # Money flow visualization (main interface)
+    money_flow_interface(analysis_data)
 
 if __name__ == "__main__":
     main()
