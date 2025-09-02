@@ -547,7 +547,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     # Add animation controls for time-lapse
     fig.update_layout(
         title=dict(
-            text=f"📈 Time-Lapse: {window_units} {window_type.title()} Money Flow Evolution<br><sub>🔴 Declining | 🟢 Growing | 🔵 Stable ({step_size} steps)</sub>",
+            text=f"📈 Time-Lapse: {window_units} {window_type.title()} Money Flow Evolution<br><sub>🔴 Declining | 🟢 Growing | 🔵 Stable ({step_size} steps) - Use trimming slider above to crop</sub>",
             x=0.5,
             font=dict(size=16)
         ),
@@ -754,68 +754,73 @@ def money_flow_interface(analysis_data):
                 step_size, signal_type, temperature, min_flow
             )
             if flow_fig:
-                # Breakpoint controls
-                col1, col2 = st.columns([3, 1])
+                # Video trimming style range selector
+                st.markdown("**🎬 Video Trimming Style Timeline Crop:**")
+                
+                # Convert frame indices to dates for display
+                start_date = period_dates[0] if period_dates else date.today()
+                end_date = period_dates[-1] if period_dates else date.today()
+                
+                col1, col2 = st.columns([4, 1])
                 
                 with col1:
-                    # Initialize session state for breakpoints
-                    if 'breakpoints' not in st.session_state:
-                        st.session_state.breakpoints = []
+                    # Range slider for trimming
+                    trim_range = st.slider(
+                        "📐 Trim Timeline (Drag handles to set start/end points)",
+                        min_value=0,
+                        max_value=total_frames - 1,
+                        value=(0, total_frames - 1),
+                        help="Drag the left handle to set start point, right handle for end point"
+                    )
                     
-                    if st.session_state.breakpoints:
-                        breakpoint_info = ", ".join([f"🔴 {bp}" for bp in st.session_state.breakpoints])
-                        st.info(f"Breakpoints set: {breakpoint_info}")
-                    else:
-                        st.info("💡 Click on the slider below to set breakpoints for custom animation segments")
+                    # Calculate corresponding dates
+                    start_frame, end_frame = trim_range
+                    
+                    # Get corresponding dates
+                    start_frame_date = frame_dates[start_frame] if start_frame < len(frame_dates) else start_date
+                    end_frame_date = frame_dates[end_frame] if end_frame < len(frame_dates) else end_date
+                    
+                    st.info(f"📅 Crop Selection: {start_frame_date.strftime('%Y-%m-%d')} to {end_frame_date.strftime('%Y-%m-%d')} ({end_frame - start_frame + 1} frames)")
                 
                 with col2:
-                    if st.button("🗑️ Clear All", help="Remove all breakpoints"):
-                        st.session_state.breakpoints = []
-                        st.rerun()
+                    play_trimmed = st.button("🎬 Play Trimmed", type="primary")
+                    
+                    # Store trim range in session state for the animation
+                    if 'trim_range' not in st.session_state:
+                        st.session_state.trim_range = (0, total_frames - 1)
+                    
+                    st.session_state.trim_range = trim_range
+                    
+                    if play_trimmed:
+                        st.success(f"▶️ Playing cropped segment: {start_frame_date.strftime('%m/%d')} to {end_frame_date.strftime('%m/%d')}")
+                        # Add JavaScript to play only the selected range
+                        st.markdown(f"""
+                        <script>
+                        // Auto-play the trimmed segment
+                        setTimeout(function() {{
+                            const plot = document.querySelector('.js-plotly-plot');
+                            if (plot && plot._fullLayout && plot._fullLayout.sliders) {{
+                                // Jump to start frame
+                                Plotly.animate(plot, [], {{
+                                    frame: {{duration: 0}},
+                                    transition: {{duration: 0}}
+                                }}).then(function() {{
+                                    // Play animation from start to end frame
+                                    const frames = [];
+                                    for (let i = {start_frame}; i <= {end_frame}; i++) {{
+                                        frames.push(String(i));
+                                    }}
+                                    return Plotly.animate(plot, frames, {{
+                                        frame: {{duration: 120}},
+                                        transition: {{duration: 80}}
+                                    }});
+                                }});
+                            }}
+                        }}, 100);
+                        </script>
+                        """, unsafe_allow_html=True)
                 
                 st.plotly_chart(flow_fig, use_container_width=True, height=800)
-                
-                # Breakpoint instructions
-                st.markdown("""
-                **🎯 Interactive Slider Controls:**
-                - **Hover**: See exact date at any position
-                - **Click**: Set a breakpoint (start or end point)
-                - **Click existing breakpoint**: Remove it
-                - **Two breakpoints**: Animation plays between them
-                - **One breakpoint**: Animation plays from start to breakpoint
-                """)
-                
-                # Breakpoint selection interface
-                st.markdown("**Set Breakpoints:**")
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    if st.button("📍 Set Start Point", help="Click to set current slider position as start point"):
-                        current_frame = 0  # Would get from slider state
-                        if len(st.session_state.breakpoints) == 0:
-                            st.session_state.breakpoints.append(f"Start: Frame {current_frame}")
-                        elif len(st.session_state.breakpoints) == 1:
-                            st.session_state.breakpoints.insert(0, f"Start: Frame {current_frame}")
-                        st.rerun()
-                
-                with col2:
-                    if st.button("🏁 Set End Point", help="Click to set current slider position as end point"):
-                        current_frame = total_frames - 1  # Would get from slider state  
-                        if len(st.session_state.breakpoints) == 0:
-                            st.session_state.breakpoints.append(f"End: Frame {current_frame}")
-                        elif len(st.session_state.breakpoints) == 1:
-                            st.session_state.breakpoints.append(f"End: Frame {current_frame}")
-                        else:
-                            st.session_state.breakpoints[1] = f"End: Frame {current_frame}"
-                        st.rerun()
-                
-                with col3:
-                    if st.button("🎬 Play Segment", help="Play animation between breakpoints", 
-                                disabled=len(st.session_state.breakpoints) < 2):
-                        if len(st.session_state.breakpoints) >= 2:
-                            st.success("Playing custom segment!")
-                        else:
-                            st.warning("Set both start and end points first")
                 
                 st.markdown(f"""
                 **📺 Clean Time-Lapse Controls:**
@@ -827,8 +832,8 @@ def money_flow_interface(analysis_data):
                 - 🟢 **Green nodes**: Growing trend vs previous period  
                 - 🔵 **Blue nodes**: Stable trend vs previous period
                 - **Node size**: Represents sector strength (larger = stronger)
-                - **Interactive slider**: Click to set breakpoints, hover for dates
-                - **Smart playback**: Plays between breakpoints when set
+                - **Trimming slider**: Drag handles to crop timeline like video editing
+                - **Smart playback**: Plays only the cropped segment
                 """)
                 
                 # Data already loaded above for date controls
