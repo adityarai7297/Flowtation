@@ -324,8 +324,78 @@ def compute_optimal_transport_flow(p0, p1, cost_matrix, epsilon=0.01):
         n = len(p0)
         return np.outer(p0, p1)
 
+def validate_timeframe_step_combination(window_units, window_type, step_size):
+    """Validate if the timeframe and step size combination will work"""
+    # Convert window to days
+    if window_type == 'weeks':
+        total_window_days = window_units * 7
+    elif window_type == 'months':
+        total_window_days = window_units * 30
+    else:  # years
+        total_window_days = window_units * 365
+    
+    # Convert step size to days and get rolling window periods
+    if step_size == '1 week':
+        step_days = 7
+        rolling_window_periods = 4
+    elif step_size == '2 weeks':
+        step_days = 14
+        rolling_window_periods = 4
+    elif step_size == '1 month':
+        step_days = 30
+        rolling_window_periods = 3
+    elif step_size == '3 months':
+        step_days = 90
+        rolling_window_periods = 2
+    else:  # 6 months
+        step_days = 180
+        rolling_window_periods = 2
+    
+    # Calculate minimum required days
+    min_required_days = rolling_window_periods * step_days + step_days  # Extra step for computation
+    
+    # Calculate expected number of periods
+    max_possible_periods = total_window_days // step_days
+    usable_periods = max(0, max_possible_periods - rolling_window_periods)
+    
+    return {
+        'is_valid': total_window_days >= min_required_days and usable_periods >= 2,
+        'total_window_days': total_window_days,
+        'min_required_days': min_required_days,
+        'step_days': step_days,
+        'rolling_window_periods': rolling_window_periods,
+        'max_possible_periods': max_possible_periods,
+        'usable_periods': usable_periods,
+        'recommendation': get_timeframe_recommendation(window_units, window_type, step_size)
+    }
+
+def get_timeframe_recommendation(window_units, window_type, step_size):
+    """Get recommendation for fixing timeframe/step issues"""
+    validation = validate_timeframe_step_combination(window_units, window_type, step_size)
+    
+    if validation['is_valid']:
+        return None
+    
+    # Calculate minimum window needed for current step size
+    min_window_days = validation['min_required_days']
+    
+    if window_type == 'weeks':
+        min_window_units = max(2, (min_window_days + 6) // 7)  # Round up
+        return f"Try at least {min_window_units} weeks for {step_size} steps"
+    elif window_type == 'months':
+        min_window_units = max(2, (min_window_days + 29) // 30)  # Round up
+        return f"Try at least {min_window_units} months for {step_size} steps"
+    else:  # years
+        min_window_units = max(1, (min_window_days + 364) // 365)  # Round up
+        return f"Try at least {min_window_units} years for {step_size} steps"
+
 def create_time_lapse_flow_visualization(returns_df, sector_names, window_units, window_type, step_size, signal_type, temperature=0.8, min_flow_threshold=0.02):
     """Create time-lapse animation showing period-over-period changes"""
+    
+    # Validate timeframe/step combination first
+    validation = validate_timeframe_step_combination(window_units, window_type, step_size)
+    if not validation['is_valid']:
+        return None, validation
     
     # Get time series data
     period_strengths, period_probabilities, period_dates = compute_sector_strengths_time_series(
@@ -333,7 +403,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
     )
     
     if period_strengths is None:
-        return None
+        return None, validation
     
     n_sectors = len(sector_names)
     n_time_points = len(period_probabilities)
@@ -539,7 +609,7 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
         }]
     )
     
-    return fig
+    return fig, validation
 
 def create_flow_summary_table(flow_matrix, sector_names, p0, p1):
     """Create a summary table of the flows"""
@@ -609,10 +679,43 @@ def money_flow_interface(analysis_data):
             # Get returns data
             returns_data = analysis_data['returns_daily']
             
+            # Validate timeframe/step combination first
+            validation = validate_timeframe_step_combination(window_units, window_type, step_size)
+            
+            if not validation['is_valid']:
+                st.error(f"""
+                ❌ **Insufficient data for this timeframe/step combination**
+                
+                **Issue**: {window_units} {window_type} with {step_size} steps doesn't provide enough periods for analysis.
+                
+                **Details**:
+                - Total window: {validation['total_window_days']} days
+                - Minimum required: {validation['min_required_days']} days
+                - Usable periods: {validation['usable_periods']} (need at least 2)
+                
+                **💡 Recommendation**: {validation['recommendation']}
+                
+                **Alternative fixes**:
+                - Increase timeframe (more {window_type})
+                - Use smaller step size (e.g., "1 week" or "2 weeks")
+                - Switch to longer period (e.g., months → years)
+                """)
+                
+                # Show helpful suggestions
+                st.info("""
+                **Quick fixes**:
+                - 📅 **8 weeks + 1 week steps** → Works great!
+                - 📅 **3 months + 2 weeks steps** → Perfect balance
+                - 📅 **6 months + 1 month steps** → Good for trends
+                - 📅 **2 years + 3 months steps** → Long-term view
+                """)
+                return
+            
             # Main time-lapse flow visualization
             st.subheader("📈 Time-Lapse Money Flow Evolution")
+            st.success(f"✅ {validation['usable_periods']} periods available for analysis ({step_size} steps over {window_units} {window_type})")
             
-            flow_fig = create_time_lapse_flow_visualization(
+            flow_fig, _ = create_time_lapse_flow_visualization(
                 returns_data, returns_data.columns, window_units, window_type, 
                 step_size, signal_type, temperature, min_flow
             )
