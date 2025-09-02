@@ -1,0 +1,56 @@
+name: Build & Publish Dataset (free)
+
+on:
+  schedule:
+    - cron: "30 22 * * 1-5"   # Mon-Fri 22:30 UTC (after US market close)
+  workflow_dispatch: {}        # manual run
+
+permissions:
+  contents: write   # needed to create/overwrite releases
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build dataset
+        env:
+          TICKERS: "XLK,XLY,XLP,XLF,XLV,XLI,XLB,XLE,XLRE,XLU,XLC,SPY"
+          YEARS: "5"
+          OUT_DIR: "dist"
+        run: python scripts/build_dataset.py
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum prices_5y.parquet > prices_5y.parquet.sha256
+          sha256sum prices_5y.csv.gz  > prices_5y.csv.gz.sha256
+          ls -lh
+
+      - name: Create/Update 'data-latest' release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: data-latest
+          name: SectorFlux Data (latest)
+          draft: false
+          prerelease: false
+          files: |
+            dist/prices_5y.parquet
+            dist/prices_5y.parquet.sha256
+            dist/prices_5y.csv.gz
+            dist/prices_5y.csv.gz.sha256
+            dist/metadata.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
