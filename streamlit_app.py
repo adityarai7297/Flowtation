@@ -503,27 +503,34 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                     # Blend colors in the middle section
                     frame_colors = colors  # Keep it simple for now
                 
-                # Create flow arrows - per-frame traces
+                # Create flow arrows as a single trace to keep a constant trace count across frames
                 frame_traces = []
-                # Adaptive threshold: scale with delta_eased so small flows still show when step is tiny
                 dynamic_threshold = min_flow_threshold * max(0.2, delta_eased * interpolation_steps)
+                edge_x = []
+                edge_y = []
+                total_flow_strength = 0.0
                 for i in range(n_sectors):
                     for j in range(n_sectors):
                         val = frame_flow_matrix[i, j]
                         if i != j and val > dynamic_threshold:
-                            # Arrow opacity/width proportional to per-frame flow
-                            arrow_opacity = min(0.8, val * 80)
-                            arrow_width = max(1, val * 100)
-                            frame_traces.append(
-                                go.Scatter(
-                                    x=[x_pos[i], x_pos[j]],
-                                    y=[y_pos[i], y_pos[j]],
-                                    mode='lines',
-                                    line=dict(color=f'rgba(255,165,0,{arrow_opacity})', width=arrow_width),
-                                    showlegend=False,
-                                    hoverinfo='skip'
-                                )
-                            )
+                            edge_x.extend([x_pos[i], x_pos[j], None])
+                            edge_y.extend([y_pos[i], y_pos[j], None])
+                            total_flow_strength += val
+                # Derive a global opacity/width from aggregate strength to convey activity level
+                # Keep edges trace present even if empty to maintain index alignment
+                avg_strength = total_flow_strength / max(1, (len(edge_x) // 3)) if edge_x else 0.0
+                edge_opacity = 0.0 if not edge_x else min(0.7, 20 * avg_strength)
+                edge_width = 1 if not edge_x else max(1, 60 * avg_strength)
+                frame_traces.append(
+                    go.Scatter(
+                        x=edge_x if edge_x else [None],
+                        y=edge_y if edge_y else [None],
+                        mode='lines',
+                        line=dict(color=f'rgba(255,165,0,{edge_opacity})', width=edge_width),
+                        showlegend=False,
+                        hoverinfo='skip'
+                    )
+                )
                 
                 # Add nodes on top of edges for clarity
                 frame_traces.append(go.Scatter(
@@ -546,7 +553,14 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                 animation_frames.append(frame_traces)
         else:
             # Final period - just add the final frame
-            frame_traces = [go.Scatter(
+            # Add an empty edges trace first to keep constant trace order, then nodes
+            frame_traces = [
+                go.Scatter(
+                    x=[None], y=[None], mode='lines',
+                    line=dict(color='rgba(255,165,0,0.0)', width=1),
+                    showlegend=False, hoverinfo='skip'
+                ),
+                go.Scatter(
                 x=x_pos,
                 y=y_pos,
                 mode='markers+text',
@@ -560,7 +574,8 @@ def create_time_lapse_flow_visualization(returns_df, sector_names, window_units,
                 textposition="middle center",
                 textfont=dict(size=12, color='white', family="Arial Black"),
                 name=f"Period {period_idx + 1}"
-            )]
+                )
+            ]
             animation_frames.append(frame_traces)
     
     # Create the figure with first frame (edges + nodes)
